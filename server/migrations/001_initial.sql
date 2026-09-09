@@ -1,0 +1,10 @@
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS records(id TEXT PRIMARY KEY,kind TEXT NOT NULL,project_id TEXT,data TEXT NOT NULL CHECK(json_valid(data)),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,deleted_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_records_kind_project ON records(kind,project_id,created_at) WHERE deleted_at IS NULL;
+CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,scene_id TEXT,type TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','cancelled')),attempt INTEGER NOT NULL DEFAULT 0,max_attempts INTEGER NOT NULL DEFAULT 3,run_at INTEGER NOT NULL,lease_until INTEGER NOT NULL DEFAULT 0,progress INTEGER NOT NULL DEFAULT 0,priority INTEGER NOT NULL DEFAULT 0,idempotency_key TEXT NOT NULL UNIQUE,payload TEXT NOT NULL CHECK(json_valid(payload)),error TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_jobs_claim ON jobs(status,run_at,priority);
+CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id,created_at);
+INSERT OR IGNORE INTO schema_migrations VALUES(1,datetime('now'));
+PRAGMA optimize;
