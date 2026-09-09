@@ -37,7 +37,7 @@ Open **http://localhost:3001**. This single command seeds missing example data, 
 
 `npm start` is an alias for this local studio. It is not a production deployment command. `npm run dev` starts only the frontend, useful when running the API and worker separately.
 
-No API keys, Redis, PostgreSQL, cloud accounts, or paid generation services are required. Files and SQLite data live under `data/`, excluded from Git. Back up this directory while the studio is stopped; do not delete it to restart a workflow.
+No API keys, Redis, PostgreSQL, cloud accounts, or paid generation services are required. Files and SQLite data live under `data/`, excluded from Git. With all studio processes stopped, run `npm run backup` to save and verify the database and media outside the repository. See the setup guide for verification and restoration; do not delete data to restart a workflow.
 
 ### Run a complete demo from the terminal
 
@@ -104,3 +104,7 @@ Deferred: live research; music, image and video generation; reference uploads; S
 The local API and FFmpeg worker cannot run inside a Cloudflare Worker. The frontend build alone is therefore **not a deployable full studio**. A hosted version needs a reachable authenticated Node API/worker and durable storage, or a separate hosted backend implementation. No incomplete frontend-only service has been published.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for domain boundaries, recovery semantics, limitations and the next implementation order.
+
+## Automated checks
+
+GitHub Actions runs type checking, lint, tests (including real FFmpeg rendering and backup verification), and the production build on pushes and pull requests. It uses development providers and mocked OpenAI responses, requiring no provider credentials.

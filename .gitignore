@@ -43,3 +43,7 @@ next-env.d.ts
 .env.local
 /test-results/
 !.env.example
+
+# local backups (default destination is outside the repository)
+/backups/
+/data-backup-*/

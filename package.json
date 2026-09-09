@@ -17,7 +17,8 @@
     "seed": "tsx server/seed.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "demo": "tsx scripts/demo.ts"
+    "demo": "tsx scripts/demo.ts",
+    "backup": "tsx scripts/backup.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

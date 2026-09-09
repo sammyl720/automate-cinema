@@ -320,13 +320,33 @@ data/
       <generated and rendered files>
 ```
 
-For a consistent backup, stop all API/worker/demo processes using the directory, then copy the entire directory to your backup location. For example:
+Stop all API, worker and demo processes using the data directory before backing up. Database snapshots and media files do not share a transaction; keeping the studio stopped is required for a consistent full backup.
 
 ```sh
-cp -R data "data-backup-$(date +%Y%m%d-%H%M%S)"
+npm run backup
 ```
 
-Store backups outside the repository if you plan to commit code; the example backup folder is not covered by the `/data/` ignore rule. Back up `.env` separately only to a secure location, or keep the token in your password manager.
+The command loads `.env`, respects `STUDIO_DATA_DIR`, and creates a uniquely named backup under `~/Developer/cinema-backups`. Choose another location with `npm run backup -- --output /path/to/backups`. Keep backups outside the data directory and outside Git. No existing backup is overwritten.
+
+Each backup contains `studio.sqlite`, `media/`, and `manifest.json`. The command uses SQLite's [VACUUM INTO](https://www.sqlite.org/lang_vacuum.html) to include committed database contents, including WAL data. It verifies database integrity, required asset files, byte counts and SHA-256 checksums before publishing the completed backup folder. Incomplete output is removed on a handled failure. `.env` is excluded; store credentials separately in your password manager or secure backup.
+
+Verify a saved backup at any time:
+
+```sh
+npm run backup -- --verify /path/to/backups/studio-TIMESTAMP-ID
+```
+
+To restore without replacing current data, stop the studio, verify the backup, then copy it to a new directory and use that copy:
+
+```sh
+# Replace the example path with the backup directory printed by the command.
+backup_path="/path/to/backups/studio-TIMESTAMP-ID"
+restored_dir="$(mktemp -d "$HOME/Developer/cinema-restored-XXXXXX")"
+cp -R "$backup_path/." "$restored_dir/"
+STUDIO_DATA_DIR="$restored_dir" npm run dev:studio
+```
+
+The running studio will modify the restored copy; preserve the original backup. Update `STUDIO_DATA_DIR` in `.env` if you want subsequent starts to keep using the restored directory. Run this command instead of another running studio, since ports 3001 and 4311 must be free.
 
 After a normal restart, completed steps remain completed. After an abrupt crash, a running job can remain visible until its lease expires; with default settings this can take roughly 3.5 minutes from its claim. The worker then reclaims it if attempts remain. Do not delete the database to clear a stuck job.
 
