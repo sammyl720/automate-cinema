@@ -71,13 +71,14 @@ export const retryDelay = (attempt: number) =>
   Math.min(60000, 1000 * 2 ** Math.max(0, attempt - 1));
 export function selectVideoProvider(
   scene: Pick<Scene, 'durationSeconds'>,
-  p: Pick<Project, 'aspect'>,
+  p: Pick<Project, 'aspect'> & Partial<Pick<Project, 'videoProvider'>>,
   providers: ProviderInfo[],
 ) {
   const eligible = providers
     .filter(
       (x) =>
-        x.status === 'connected' &&
+        x.id === (p.videoProvider ?? 'development') &&
+        (x.status === 'connected' || x.status === 'configured') &&
         x.capabilities.textToVideo &&
         x.capabilities.maximumDurationSeconds >= scene.durationSeconds &&
         x.capabilities.supportedAspectRatios.includes(p.aspect),

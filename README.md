@@ -2,9 +2,13 @@
 
 A runnable local vertical slice of an autonomous cinematic content platform. Develop concepts, select a direction, create a structured script and storyboard, run persistent generation jobs, review assets, render an MP4 with FFmpeg, and export platform packages.
 
-**Development mode remains free and deterministic.** You can now opt into OpenAI for real concepts, structured scripts, storyboards and spoken narration when creating a project. Video is still a test pattern. Publishing and analytics remain disconnected.
+**Development mode remains free and deterministic.** You can now opt into OpenAI for real concepts, structured scripts, storyboards and spoken narration when creating a project. Choose Runway for real Gen-4.5 video, or development for free test patterns. Publishing and analytics remain disconnected.
 
 See [Enable OpenAI creative generation and narration](docs/OPENAI_SETUP.md) for API-key setup, per-project choices, cost reservations and a first paid preview.
+
+## MVP quick start
+
+See [Brief to an AI-generated film](docs/MVP_QUICKSTART.md) for the two API keys, the AI MVP preset, costs, recovery behavior and the first film workflow.
 
 ## Detailed setup and usage guide
 
@@ -99,7 +103,7 @@ A configured studio token is submitted through the dashboard login and retained 
 
 Implemented: persistent workflows, bounded retries/cancellation/timeouts, resumable queue leases, deterministic concepts and independent hook scores, structured scripts/storyboards, cinematic prompts with a creative bible, prompt/generation history, budget reservations, scene revisions, local managed assets, three aspect-ratio exports, audio normalization, SRT/WebVTT, technical export evaluation, platform packages, seed data and tests.
 
-Deferred: live research; music, image and video generation; reference uploads; S3 and PostgreSQL adapters; multi-user workspaces; credential encryption/webhooks for real providers; automated moderation and rights review; semantic vision/film critique; autonomous creative revision; word-level alignment/burned captions; layered audio ducking; social publishing; analytics ingestion; experiment management. Interfaces and extensible records provide starting points, not working integrations for these features.
+Deferred: live research; music and image generation; reference uploads; S3 and PostgreSQL adapters; multi-user workspaces; credential encryption/webhooks for real providers; automated moderation and rights review; semantic vision/film critique; autonomous creative revision; word-level alignment/burned captions; layered audio ducking; social publishing; analytics ingestion; experiment management. Interfaces and extensible records provide starting points, not working integrations for these features.
 
 The local API and FFmpeg worker cannot run inside a Cloudflare Worker. The frontend build alone is therefore **not a deployable full studio**. A hosted version needs a reachable authenticated Node API/worker and durable storage, or a separate hosted backend implementation. No incomplete frontend-only service has been published.
 

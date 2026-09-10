@@ -65,8 +65,36 @@ export const providerRegistry: ProviderInfo[] = [
     costPerSecond: 0,
     model: 'deterministic-v1',
   },
-  {id:'openai', name:'OpenAI · creative & narration',status:'authentication_required',demo:false,capabilities:{...caps,textToVideo:false,audioGeneration:true,maximumDurationSeconds:0},costPerSecond:0,model:'gpt-4.1-mini / tts-1'},
-  ...['Runway', 'Higgsfield', 'ElevenLabs'].map((name) => ({
+  {
+    id: 'openai',
+    name: 'OpenAI · creative & narration',
+    status: 'authentication_required',
+    demo: false,
+    capabilities: {
+      ...caps,
+      textToVideo: false,
+      audioGeneration: true,
+      maximumDurationSeconds: 0,
+    },
+    costPerSecond: 0,
+    model: 'gpt-4.1-mini / tts-1',
+  },
+  {
+    id: 'runway',
+    name: 'Runway · video',
+    status: 'authentication_required',
+    demo: false,
+    capabilities: {
+      ...caps,
+      textToVideo: true,
+      audioGeneration: false,
+      maximumDurationSeconds: 10,
+      supportedAspectRatios: ['9:16', '16:9'],
+    },
+    costPerSecond: 0.12,
+    model: 'gen4.5',
+  },
+  ...['Higgsfield', 'ElevenLabs'].map((name) => ({
     id: name.toLowerCase(),
     name,
     status: 'unsupported' as const,
@@ -186,4 +214,22 @@ export const videoProviders: Record<string, VideoGenerationProvider> = {
   development: new DevelopmentVideoProvider(),
 };
 
-export function getProviderRegistry():ProviderInfo[]{return providerRegistry.map(p=>p.id==='openai'?{...p,status:config.OPENAI_API_KEY?'configured':'authentication_required'}:p)}
+export function getProviderRegistry(): ProviderInfo[] {
+  return providerRegistry.map((p) =>
+    p.id === 'openai'
+      ? {
+          ...p,
+          status: config.OPENAI_API_KEY
+            ? 'configured'
+            : 'authentication_required',
+        }
+      : p.id === 'runway'
+        ? {
+            ...p,
+            status: config.RUNWAY_API_KEY
+              ? 'configured'
+              : 'authentication_required',
+          }
+        : p,
+  );
+}

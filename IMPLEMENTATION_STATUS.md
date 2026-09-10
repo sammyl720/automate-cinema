@@ -14,7 +14,7 @@
 
 The original Documents checkout was offloaded by iCloud again. A separate working copy has been recovered under `~/Developer/automate-cinema-recovered`. See [recovery notes](RECOVERY.md).
 
-Using Node 23.8.0, full-project TypeScript checks, lint, all **28 tests**, and the production build passed. Tests include a real FFmpeg render/package workflow, queue recovery, authentication, mocked OpenAI responses, budget accounting, paid-result replay and speech fitting. No live OpenAI request was made; account billing, key permissions and model access remain unverified.
+Using Node 23.8.0, full-project TypeScript checks, lint, all **34 tests**, and the production build passed. Tests include a real FFmpeg render/package workflow, queue recovery, authentication, mocked OpenAI responses, budget accounting, paid-result replay and speech fitting. No live OpenAI request was made; account billing, key permissions and model access remain unverified.
 
 Use Node 22.13+; this machine's default shell Node was 22.2.0, which lacks node:sqlite. `.nvmrc` pins the installed and tested 23.8.0.
 
@@ -34,10 +34,14 @@ Miniflare’s image dependency is overridden to Sharp 0.35.4, the patched releas
 
 ## Remaining product scope
 
-Existing projects stay on development providers. Video remains a test pattern. Real AI video, publishing, independent factual verification and automatic billing reconciliation are not implemented. See the setup guide for enabling OpenAI on a new project.
+Existing projects stay on development providers. Runway video is now opt-in. Publishing, independent factual verification and automatic reconciliation of unknown submissions are not implemented. See the setup guide for enabling OpenAI on a new project.
 
 ## Backup and continuous checks
 
 `npm run backup` creates a verified offline database/media backup outside the repository. `--verify` checks an existing backup. Tests cover committed WAL data, corruption, missing assets and unsafe paths. GitHub Actions is configured to run type checking, lint, tests and the build on pushes and pull requests.
 
 The first backup of the recovered studio was created and independently verified: one database and eleven media files, preserving four projects. No credentials or backups are committed.
+
+## Runway MVP
+
+Runway Gen-4.5 text-to-video now supports three-scene 6–30 second portrait/landscape films, with saved task IDs, deferred polling, budget reservations, reported-credit settlement, bounded local media downloads and FFmpeg assembly. The AI MVP preset selects Runway and OpenAI. Generate film resumes narration, rendering and packaging after script review. See [MVP setup](docs/MVP_QUICKSTART.md). No live paid generation has been performed.

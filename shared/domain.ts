@@ -27,9 +27,12 @@ export const projectInput = z.object({
   aspect: z.enum(['9:16', '16:9', '1:1']).default('9:16'),
   mode: z.enum(['manual', 'assisted', 'autonomous']).default('assisted'),
   quality: z.enum(['draft', 'final']).default('draft'),
-  creativeProvider: z.enum(['development','openai']).default('development'),
-  narrationProvider: z.enum(['development','openai']).default('development'),
-  voice: z.enum(['alloy','echo','fable','onyx','nova','shimmer']).default('alloy'),
+  videoProvider: z.enum(['development', 'runway']).default('development'),
+  creativeProvider: z.enum(['development', 'openai']).default('development'),
+  narrationProvider: z.enum(['development', 'openai']).default('development'),
+  voice: z
+    .enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'])
+    .default('alloy'),
   budget: z
     .object({
       maximumUsd: z.number().min(0).max(10000).default(20),
@@ -230,7 +233,16 @@ export interface Generation extends RecordBase {
   attempt: number;
   estimatedUsd: number;
   actualUsd: number;
-  status: 'reserved' | 'completed' | 'failed';
+  status:
+    | 'reserved'
+    | 'submitting'
+    | 'submitted'
+    | 'uncertain'
+    | 'completed'
+    | 'failed';
+  remoteTaskId?: string;
+  billed?: boolean;
+  costBasis?: string;
   assetId?: string;
   latencyMs?: number;
   error?: string;
@@ -238,7 +250,11 @@ export interface Generation extends RecordBase {
 export interface ProviderInfo {
   id: string;
   name: string;
-  status: 'connected' | 'configured' | 'unsupported' | 'authentication_required';
+  status:
+    | 'connected'
+    | 'configured'
+    | 'unsupported'
+    | 'authentication_required';
   demo: boolean;
   capabilities: {
     textToVideo: boolean;
@@ -275,7 +291,22 @@ export interface ProjectDetail {
 }
 
 export interface ApiCall extends RecordBase {
- projectId:string; jobId:string; sceneId?:string; key:string; stage:string; provider:'openai'; model:string;
- status:'reserved'|'completed'|'failed'|'uncertain'; attempt:number; estimatedUsd:number; calculatedUsd:number;
- pricingBasis:string; request:unknown; result?:unknown; requestId?:string; latencyMs?:number; usage?:Record<string,unknown>; error?:string;
+  projectId: string;
+  jobId: string;
+  sceneId?: string;
+  key: string;
+  stage: string;
+  provider: 'openai';
+  model: string;
+  status: 'reserved' | 'completed' | 'failed' | 'uncertain';
+  attempt: number;
+  estimatedUsd: number;
+  calculatedUsd: number;
+  pricingBasis: string;
+  request: unknown;
+  result?: unknown;
+  requestId?: string;
+  latencyMs?: number;
+  usage?: Record<string, unknown>;
+  error?: string;
 }

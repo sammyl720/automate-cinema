@@ -12,6 +12,7 @@ import type {
 } from '../shared/domain';
 import { trace } from './creative';
 import { creativeProvider, persistStoryboard } from './creative-providers';
+import { generateRunway } from './runway';
 import { spokenNarration } from './narration';
 import { transition } from './service';
 import { checkBudget, selectVideoProvider, DomainError } from './policy';
@@ -45,8 +46,12 @@ export async function handle(job: Job, signal: AbortSignal) {
   if (job.type === 'package' && p.state === 'packaged') return;
   event(p.id, `${job.type}.started`, { jobId: job.id, attempt: job.attempt });
   if (job.type === 'concepts') {
-    if (!list<Concept>('concept', p.id).length)
-      { const concepts=await creativeProvider(p).concepts(p,job,signal); transaction(()=>{for(const c of concepts)save('concept',c)}); }
+    if (!list<Concept>('concept', p.id).length) {
+      const concepts = await creativeProvider(p).concepts(p, job, signal);
+      transaction(() => {
+        for (const c of concepts) save('concept', c);
+      });
+    }
   }
   if (job.type === 'script') {
     if (!p.selectedConceptId) throw new DomainError('No selected concept');
@@ -77,8 +82,14 @@ export async function handle(job: Job, signal: AbortSignal) {
   if (job.type === 'storyboard') {
     p = transition(p, 'storyboarding');
     const scenes = list<Scene>('scene', p.id);
-    persistStoryboard(await creativeProvider(p).storyboard(p,scenes,job,signal));
+    persistStoryboard(
+      await creativeProvider(p).storyboard(p, scenes, job, signal),
+    );
     transition(p, 'assets_planned');
+  }
+  if (job.type === 'generate' && p.videoProvider === 'runway') {
+    await generateRunway(job, signal);
+    return;
   }
   if (job.type === 'generate') {
     if (!job.sceneId) throw new DomainError('Missing scene');
@@ -202,7 +213,7 @@ export async function handle(job: Job, signal: AbortSignal) {
     }
   }
   if (job.type === 'narration' && p.narrationProvider === 'openai') {
-    await spokenNarration(p,job,signal);
+    await spokenNarration(p, job, signal);
   }
   if (job.type === 'narration' && p.narrationProvider !== 'openai') {
     const scenes = list<Scene>('scene', p.id);
@@ -260,7 +271,7 @@ export async function handle(job: Job, signal: AbortSignal) {
         'ffprobe technical checks only; cinematic and speech review unavailable',
       issues,
       recommendedChanges: [
-        'Review visual quality, factual accuracy, rights, narration and pacing before publishing. Visuals are development test patterns; audio provenance is recorded separately.',
+        'Review visual quality, factual accuracy, rights, narration and pacing before publishing. Check the recorded video and audio provenance before release.',
       ],
       metrics: {
         duration,
@@ -303,7 +314,11 @@ export async function handle(job: Job, signal: AbortSignal) {
         subtitleAssetId: subtitle.id,
         thumbnailAssetId: thumbnail.id,
         disclosure:
-          p.narrationProvider==='openai' ? 'PREVIEW: development test visuals with AI-generated speech, not a human voice. Review before release.' : 'DEVELOPMENT PREVIEW: deterministic visuals and a test tone. Not finished AI footage or speech.',
+          p.videoProvider === 'runway'
+            ? `AI-generated video using Runway. ${p.narrationProvider === 'openai' ? 'AI-generated speech, not a human voice.' : 'Test tone; no spoken narration.'} Human review required before release.`
+            : p.narrationProvider === 'openai'
+              ? 'PREVIEW: development test visuals with AI-generated speech, not a human voice. Review before release.'
+              : 'DEVELOPMENT PREVIEW: deterministic visuals and a test tone. Not finished AI footage or speech.',
         status: 'ready',
       };
       const key = `${p.id}/${platform.replaceAll(' ', '-').toLowerCase()}-r${p.revision}.json`;

@@ -119,7 +119,9 @@ export async function renderTimeline(
   const [w, h] = dimensions(p.aspect, 'final');
   const args = ['-y', ...inputs.flatMap((a) => ['-i', mediaPath(a.path)])];
   const narration = assets
-    .filter((a) => a.type === 'narration' && !a.sceneId && a.revision === p.revision)
+    .filter(
+      (a) => a.type === 'narration' && !a.sceneId && a.revision === p.revision,
+    )
     .at(-1);
   if (narration) args.push('-i', mediaPath(narration.path));
   const filters = inputs
@@ -168,8 +170,10 @@ export async function renderTimeline(
     parameters: {
       sceneAssets: inputs.map((a) => a.id),
       narrationAsset: narration?.id,
-      isSpeech: narration?.parameters.isSpeech===true,
-      developmentPlaceholder: true,
+      isSpeech: narration?.parameters.isSpeech === true,
+      developmentPlaceholder: inputs.some(
+        (a) => a.parameters.developmentPlaceholder !== false,
+      ),
     },
   });
   const thumbKey = `${p.id}/thumbnail-r${p.revision}.jpg`;
@@ -213,7 +217,10 @@ export async function subtitles(p: Project, scenes: Scene[]) {
     await assetFile(p, 'subtitles', key, {
       revision: p.revision,
       parameters: {
-        timing: p.narrationProvider==='openai' ? 'Scene-level timing fitted to speech duration; not word-aligned' : 'scene-level canonical transcript; not speech-aligned',
+        timing:
+          p.narrationProvider === 'openai'
+            ? 'Scene-level timing fitted to speech duration; not word-aligned'
+            : 'scene-level canonical transcript; not speech-aligned',
       },
       mime: ext === 'vtt' ? 'text/vtt' : 'application/x-subrip',
     });

@@ -1,6 +1,6 @@
 # Enable OpenAI creative generation and narration
 
-OpenAI is now an implemented, opt-in provider for concepts, scripts, storyboards and spoken narration. Video remains the free development test-pattern provider. Publishing is still disconnected.
+OpenAI is now an implemented, opt-in provider for concepts, scripts, storyboards and spoken narration. Video is selected separately: Runway supplies real clips, while development produces free test patterns. See the [MVP guide](MVP_QUICKSTART.md). Publishing is still disconnected.
 
 Existing projects keep their original development behavior. Provider selection is made when creating a new project; simply adding a key never converts existing projects into paid workflows.
 
@@ -72,7 +72,7 @@ Malformed structured creative output and provider refusals pause the workflow. A
 
 ## Limits
 
-This milestone has real API adapters, but video is still placeholder footage. No real AI-video adapter, visual critic, automated research retrieval or publishing connection is included. Factual prompts receive the human-verified source records and script source IDs are checked, but that is not an independent factual-verification model. Review all factual claims and source support yourself.
+The MVP now includes a Runway video adapter. Visual critique, automated research retrieval and publishing remain unavailable. Factual prompts receive the human-verified source records and script source IDs are checked, but that is not an independent factual-verification model. Review all factual claims and source support yourself.
 
 API integration tests use mocked HTTP responses and generated audio fixtures. A passing test suite does not establish that your particular key, account billing or model access works. No live credentials are required for tests or the default CLI demo.
 

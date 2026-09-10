@@ -110,6 +110,11 @@ export function validateLiveScenes(
   );
   for (const scene of ordered) {
     if (
+      p.videoProvider === 'runway' &&
+      (scene.durationSeconds < 2 || scene.durationSeconds > 10)
+    )
+      throw new DomainError('Runway script scenes must be 2–10 seconds each.');
+    if (
       scene.narration.trim().split(/\s+/).filter(Boolean).length >
       Math.ceil(scene.durationSeconds * 2.3)
     )
@@ -176,7 +181,10 @@ const openai: CreativeProvider = {
     const data = await structuredCall(
       job,
       'creative_script',
-      scriptPrompt,
+      scriptPrompt +
+        (p.videoProvider === 'runway'
+          ? '\nEach of the three scenes MUST be 2–10 seconds, with total duration matching the project. Keep visual descriptions concise for a 1,000-character video prompt.'
+          : ''),
       { ...context(p), concept: c },
       scriptSchema,
       signal,
@@ -191,12 +199,13 @@ const openai: CreativeProvider = {
         endTime: start + spec.durationSeconds,
         prompt: '',
         negativePrompt: 'unwanted text, watermark, inconsistent identity',
-        provider: 'development',
+        provider: p.videoProvider ?? 'development',
         status: 'planned',
         revision: 1,
       };
       start = s.endTime;
       s.prompt = constructPrompt(s, p.creativeBible);
+      if (p.videoProvider === 'runway') s.prompt = s.prompt.slice(0, 1000);
       return s;
     });
   },
@@ -216,7 +225,11 @@ const openai: CreativeProvider = {
       throw new DomainError('Storyboard did not return one shot per scene.');
     return scenes.map((s) => {
       const updated = { ...s, ...ordered[s.sceneNumber - 1] };
-      return { ...updated, prompt: constructPrompt(updated, p.creativeBible) };
+      const prompt = constructPrompt(updated, p.creativeBible);
+      return {
+        ...updated,
+        prompt: p.videoProvider === 'runway' ? prompt.slice(0, 1000) : prompt,
+      };
     });
   },
 };

@@ -24,12 +24,21 @@ import {
   checkBudget,
   selectVideoProvider,
 } from './policy';
-import { providerRegistry } from './providers';
+import { getProviderRegistry } from './providers';
+import { requireRunway } from './runway';
 import { requireOpenAI } from './openai-client';
 import { constructPrompt } from './creative';
 export function createProject(input: unknown): Project {
   const data = projectInput.parse(input);
-  if(data.creativeProvider==='openai'||data.narrationProvider==='openai')requireOpenAI();
+  if (data.videoProvider === 'runway') {
+    requireRunway();
+    if (data.aspect === '1:1' || data.duration > 30)
+      throw new DomainError(
+        'Runway MVP supports 6–30 seconds in portrait or landscape.',
+      );
+  }
+  if (data.creativeProvider === 'openai' || data.narrationProvider === 'openai')
+    requireOpenAI();
   return transaction(() => {
     const p = save('project', {
       ...base(),
@@ -63,7 +72,7 @@ export function transition(p: Project, state: State) {
   const fresh = get<Project>('project', p.id);
   return save('project', {
     ...fresh,
-    selectedConceptId:p.selectedConceptId??fresh.selectedConceptId,
+    selectedConceptId: p.selectedConceptId ?? fresh.selectedConceptId,
     automationRunning: fresh.automationRunning,
     state,
     error: undefined,
@@ -85,7 +94,7 @@ export function detail(id: string): ProjectDetail {
     research: list<ResearchSource>('research', id),
     prompts: list<PromptExecution>('prompt', id),
     generations: list<Generation>('generation', id),
-    apiCalls: list<ApiCall>('apiCall',id),
+    apiCalls: list<ApiCall>('apiCall', id),
   };
 }
 export function assertResearch(p: Project) {
@@ -146,8 +155,8 @@ export function requestStage(projectId: string, type: JobType) {
     const estimate = pending.reduce(
       (sum, s) =>
         sum +
-        selectVideoProvider(s, p, providerRegistry).costPerSecond *
-          s.durationSeconds,
+        selectVideoProvider(s, p, getProviderRegistry()).costPerSecond *
+          Math.ceil(s.durationSeconds),
       0,
     );
     checkBudget(p, estimate, 0);
@@ -177,7 +186,9 @@ export function requestStage(projectId: string, type: JobType) {
     throw new DomainError('All scenes must have accepted media');
   if (
     type === 'render' &&
-    !d.assets.some((a) => a.type === 'narration' && !a.sceneId && a.revision === p.revision)
+    !d.assets.some(
+      (a) => a.type === 'narration' && !a.sceneId && a.revision === p.revision,
+    )
   )
     throw new DomainError('Generate the narration test track first');
   enqueue(projectId, type, `${projectId}:${type}:r${p.revision}`);
@@ -246,7 +257,8 @@ export function advance(id: string) {
       if (d.scenes.some((s) => !s.assetId)) return;
       if (
         !d.assets.some(
-          (a) => a.type === 'narration' && !a.sceneId && a.revision === p.revision,
+          (a) =>
+            a.type === 'narration' && !a.sceneId && a.revision === p.revision,
         )
       )
         requestStage(id, 'narration');
@@ -275,13 +287,20 @@ export function advance(id: string) {
 export const sceneEdit = z.object({
   prompt: z.string().trim().min(10).max(8000),
   narration: z.string().max(3000),
-  provider: z.literal('development'),
+  provider: z.enum(['development', 'runway']),
 });
 export function editScene(id: string, input: unknown) {
   const s = get<Scene>('scene', id);
   if (isBusy(s.projectId))
     throw new DomainError('Pause or finish active work before editing scenes');
   const data = sceneEdit.parse(input);
+  const project = get<Project>('project', s.projectId);
+  if (data.provider !== (project.videoProvider ?? 'development'))
+    throw new DomainError(
+      'Scene provider must match the project video provider.',
+    );
+  if (data.provider === 'runway' && data.prompt.length > 1000)
+    throw new DomainError('Runway prompts must be at most 1,000 characters.');
   save('sceneRevision', {
     ...base(),
     projectId: s.projectId,
@@ -329,10 +348,10 @@ export function regenerate(id: string) {
   if (isBusy(s.projectId))
     throw new DomainError('Finish current work before regenerating');
   const p = get<Project>('project', s.projectId);
-  const provider = selectVideoProvider(s, p, providerRegistry);
+  const provider = selectVideoProvider(s, p, getProviderRegistry());
   checkBudget(
     p,
-    provider.costPerSecond * s.durationSeconds,
+    provider.costPerSecond * Math.ceil(s.durationSeconds),
     list<Generation>('generation', p.id).filter((g) => g.sceneId === s.id)
       .length,
   );

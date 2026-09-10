@@ -458,7 +458,8 @@ export default function Home() {
                       A complete production, one deliberate step at a time.
                     </h3>
                     <p>
-                      Test footage · Optional OpenAI creative and speech · Publishing disconnected
+                      Test footage · Optional OpenAI creative and speech ·
+                      Publishing disconnected
                     </p>
                   </div>
                 </div>
@@ -550,7 +551,15 @@ export default function Home() {
                       <p>
                         {p.demo
                           ? 'Deterministic video patterns and audio test tones. No credits required.'
-                          : p.id==='openai' ? (p.status==='configured' ? 'Key configured. Choose OpenAI when creating a project for paid concepts, scripts, storyboards and speech. Account access is checked on first request.' : 'Set OPENAI_API_KEY in the server .env and restart. Video remains a development placeholder; no browser key entry is needed.') : 'Adapter is not implemented. No requests or charges will be made.'}
+                          : p.id === 'runway'
+                            ? p.status === 'configured'
+                              ? 'Key configured. Choose Runway for real Gen-4.5 video; account access is checked on first request.'
+                              : 'Set RUNWAY_API_KEY in the server .env and restart. Runway API credits are separate from website subscriptions.'
+                            : p.id === 'openai'
+                              ? p.status === 'configured'
+                                ? 'Key configured. Choose OpenAI when creating a project for paid concepts, scripts, storyboards and speech. Account access is checked on first request.'
+                                : 'Set OPENAI_API_KEY in the server .env and restart. Choose your video provider separately; keys stay on the server.'
+                              : 'Adapter is not implemented. No requests or charges will be made.'}
                       </p>
                       <div className="tags">
                         <span>{p.model}</span>
@@ -613,9 +622,10 @@ function NewProject({
     [mode, setMode] = useState('assisted'),
     [aspect, setAspect] = useState('9:16'),
     [quality, setQuality] = useState('draft'),
-    [creativeProvider,setCreativeProvider]=useState('development'),
-    [narrationProvider,setNarrationProvider]=useState('development'),
-    [voice,setVoice]=useState('alloy');
+    [videoProvider, setVideoProvider] = useState('development'),
+    [creativeProvider, setCreativeProvider] = useState('development'),
+    [narrationProvider, setNarrationProvider] = useState('development'),
+    [voice, setVoice] = useState('alloy');
   return (
     <Dialog
       open={open}
@@ -646,7 +656,10 @@ function NewProject({
               mode,
               aspect,
               quality,
-              creativeProvider, narrationProvider, voice,
+              videoProvider,
+              creativeProvider,
+              narrationProvider,
+              voice,
               budget: {
                 maximumUsd: Number(f.get('budget')),
                 maximumRegenerationsPerScene: 2,
@@ -692,7 +705,11 @@ function NewProject({
             <Choice
               label="Frame"
               value={aspect}
-              options={['9:16', '16:9', '1:1']}
+              options={
+                videoProvider === 'runway'
+                  ? ['9:16', '16:9']
+                  : ['9:16', '16:9', '1:1']
+              }
               onChange={setAspect}
             />
             <Choice
@@ -701,16 +718,55 @@ function NewProject({
               options={['draft', 'final']}
               onChange={setQuality}
             />
-            <Choice label="Creative provider" value={creativeProvider} options={['development','openai']} onChange={setCreativeProvider}/>
-            <Choice label="Narration provider" value={narrationProvider} options={['development','openai']} onChange={setNarrationProvider}/>
-            {narrationProvider==='openai'&&<Choice label="AI voice" value={voice} options={['alloy','echo','fable','onyx','nova','shimmer']} onChange={setVoice}/>}
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setVideoProvider('runway');
+                setCreativeProvider('openai');
+                setNarrationProvider('openai');
+                setMode('assisted');
+                setAspect('9:16');
+              }}
+            >
+              Use AI MVP setup
+            </button>
+            <Choice
+              label="Video provider"
+              value={videoProvider}
+              options={['development', 'runway']}
+              onChange={(value) => {
+                setVideoProvider(value);
+                if (value === 'runway' && aspect === '1:1') setAspect('9:16');
+              }}
+            />
+            <Choice
+              label="Creative provider"
+              value={creativeProvider}
+              options={['development', 'openai']}
+              onChange={setCreativeProvider}
+            />
+            <Choice
+              label="Narration provider"
+              value={narrationProvider}
+              options={['development', 'openai']}
+              onChange={setNarrationProvider}
+            />
+            {narrationProvider === 'openai' && (
+              <Choice
+                label="AI voice"
+                value={voice}
+                options={['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']}
+                onChange={setVoice}
+              />
+            )}
             <label className="field">
               Duration / seconds
               <input
                 name="duration"
                 type="number"
                 min={6}
-                max={90}
+                max={videoProvider === 'runway' ? 30 : 90}
                 defaultValue={15}
                 required
               />
@@ -728,7 +784,11 @@ function NewProject({
             </label>
           </div>
           <p className="helper">
-            {creativeProvider==='openai'||narrationProvider==='openai' ? 'OpenAI requests are paid and count toward this project’s budget. Starting a workflow authorizes its selected AI stages. Assisted mode pauses before video generation. Video is still a test pattern; publishing is disconnected.' : 'Development generation costs $0. Assisted mode pauses before generation. Publishing is disconnected.'}
+            {videoProvider === 'runway'
+              ? 'Runway Gen-4.5 video costs $0.12 per requested second (each scene rounds up to a whole second), plus selected OpenAI text and speech. A 15-second video is about $1.80 before OpenAI and tax. Choose 6–30 seconds. Assisted mode pauses for review before video generation; Run workflow authorizes selected paid creative stages.'
+              : creativeProvider === 'openai' || narrationProvider === 'openai'
+                ? 'OpenAI text and speech are paid; video uses free test patterns. Assisted mode pauses before video generation. Starting a workflow authorizes its selected AI stages.'
+                : 'Development generation costs $0. Assisted mode pauses before generation.'}
           </p>
           <button disabled={busy} className="primary wide">
             <Plus size={18} /> Create production
@@ -765,10 +825,18 @@ function ProjectView({
     generating:
       completed === d.scenes.length
         ? d.assets.some(
-            (a) => a.type === 'narration' && !a.sceneId && a.revision === p.revision,
+            (a) =>
+              a.type === 'narration' && !a.sceneId && a.revision === p.revision,
           )
           ? [['render', 'Render film']]
-          : [['narration', p.narrationProvider==='openai'?'Generate AI narration':'Generate test audio']]
+          : [
+              [
+                'narration',
+                p.narrationProvider === 'openai'
+                  ? 'Generate AI narration'
+                  : 'Generate test audio',
+              ],
+            ]
         : [['generate', 'Generate missing scenes']],
     assembling: [['evaluate', 'Evaluate render']],
     approved: [['package', 'Create platform packages']],
@@ -787,7 +855,15 @@ function ProjectView({
             <span>{p.duration} seconds</span>
             <span>{p.aspect}</span>
             <span>{label(p.mode)}</span>
-            <span>Revision {p.revision}</span><span>Creative: {p.creativeProvider??'development'}</span><span>Audio: {p.narrationProvider??'development'}</span>
+            {p.videoProvider === 'runway' && (
+              <a href="https://runwayml.com" target="_blank" rel="noreferrer">
+                Powered by Runway ↗
+              </a>
+            )}
+            <span>Revision {p.revision}</span>
+            <span>Video: {p.videoProvider ?? 'development'}</span>
+            <span>Creative: {p.creativeProvider ?? 'development'}</span>
+            <span>Audio: {p.narrationProvider ?? 'development'}</span>
           </div>
         </div>
         <div className="actions">
@@ -813,14 +889,36 @@ function ProjectView({
               className="primary"
               key={action}
               disabled={busy || active}
-              onClick={() => perform(`/api/projects/${p.id}/${action}`)}
+              onClick={() => {
+                if (action === 'generate' && p.videoProvider === 'runway') {
+                  void act(`/api/projects/${p.id}/generate`)
+                    .then(() => act(`/api/projects/${p.id}/run`))
+                    .catch(() => {});
+                } else perform(`/api/projects/${p.id}/${action}`);
+              }}
             >
-              {active ? <Clock size={16} /> : <Play size={16} />} {caption}
+              {active ? <Clock size={16} /> : <Play size={16} />}{' '}
+              {action === 'generate' && p.videoProvider === 'runway'
+                ? 'Generate film'
+                : caption}
             </button>
           ))}
         </div>
       </div>
       {p.error && <div className="notice error">{p.error}</div>}
+      {p.videoProvider === 'runway' && p.state === 'assets_planned' && (
+        <div className="notice">
+          Review the three scenes, then choose Generate film to authorize Runway
+          clips, the selected narration, and assembly. Estimated video:{' '}
+          {money(
+            d.scenes.reduce(
+              (total, s) => total + Math.ceil(s.durationSeconds) * 0.12,
+              0,
+            ),
+          )}
+          , plus OpenAI and tax. Your project budget applies.
+        </div>
+      )}
       <div className="project-summary">
         <div className="panel brief">
           <span className="eyebrow">DIRECTOR’S BRIEF</span>
@@ -866,7 +964,10 @@ function ProjectView({
         <TabsContent value="storyboard">
           <div className="section-heading">
             <h2>The film, scene by scene</h2>
-            <span>{p.quality.toUpperCase()} / DEVELOPMENT PROVIDER</span>
+            <span>
+              {p.quality.toUpperCase()} /{' '}
+              {(p.videoProvider ?? 'development').toUpperCase()}
+            </span>
           </div>
           {d.scenes.length ? (
             <>
@@ -884,7 +985,7 @@ function ProjectView({
                             controls
                             preload="metadata"
                             playsInline
-                            aria-label={`Scene ${s.sceneNumber} development preview`}
+                            aria-label={`Scene ${s.sceneNumber} video preview`}
                             muted
                           />
                         ) : (
@@ -963,9 +1064,14 @@ function ProjectView({
                 <div className="audio-track">
                   <Radio size={14} />{' '}
                   {d.assets.some(
-                    (a) => a.type === 'narration' && !a.sceneId && a.revision === p.revision,
+                    (a) =>
+                      a.type === 'narration' &&
+                      !a.sceneId &&
+                      a.revision === p.revision,
                   )
-                    ? (p.narrationProvider==='openai'?'AI-generated voice · scene-aligned':'Development test tone · not spoken narration')
+                    ? p.narrationProvider === 'openai'
+                      ? 'AI-generated voice · scene-aligned'
+                      : 'Development test tone · not spoken narration'
                     : 'Audio not generated'}
                 </div>
               </div>
@@ -979,7 +1085,11 @@ function ProjectView({
         <TabsContent value="concepts">
           <div className="section-heading">
             <h2>Find the story worth telling</h2>
-            <span>{p.creativeProvider==='openai'?'AI EDITORIAL SCORES / NOT AUDIENCE DATA':'DEVELOPMENT RUBRIC / NOT A RETENTION PREDICTION'}</span>
+            <span>
+              {p.creativeProvider === 'openai'
+                ? 'AI EDITORIAL SCORES / NOT AUDIENCE DATA'
+                : 'DEVELOPMENT RUBRIC / NOT A RETENTION PREDICTION'}
+            </span>
           </div>
           <div className="concept-grid">
             {d.concepts.map((c) => (
@@ -1072,9 +1182,28 @@ function ProjectView({
           <AssetGrid assets={d.assets} />
         </TabsContent>
         <TabsContent value="generations">
-          <div className="section-heading"><h2>AI requests &amp; calculated costs</h2><span>{money(p.reservedUsd)} RESERVED</span></div>
-          <p className="helper">Costs use published rates and returned usage, not a billing invoice. Uncertain requests retain a reservation to avoid duplicate charges.</p>
-          {(d.apiCalls??[]).map(call=><details className="panel" key={call.id}><summary>{label(call.stage)} · {call.model} · {call.status} · ${call.calculatedUsd.toFixed(6)}</summary><p>Request ID: {call.requestId??'Not returned'} · Attempt {call.attempt} · ${call.estimatedUsd.toFixed(6)} estimated</p><p>{call.error??call.pricingBasis}</p><pre>{JSON.stringify(call.usage??{},null,2)}</pre></details>)}
+          <div className="section-heading">
+            <h2>AI requests &amp; calculated costs</h2>
+            <span>{money(p.reservedUsd)} RESERVED</span>
+          </div>
+          <p className="helper">
+            Costs use published rates and returned usage, not a billing invoice.
+            Uncertain requests retain a reservation to avoid duplicate charges.
+          </p>
+          {(d.apiCalls ?? []).map((call) => (
+            <details className="panel" key={call.id}>
+              <summary>
+                {label(call.stage)} · {call.model} · {call.status} · $
+                {call.calculatedUsd.toFixed(6)}
+              </summary>
+              <p>
+                Request ID: {call.requestId ?? 'Not returned'} · Attempt{' '}
+                {call.attempt} · ${call.estimatedUsd.toFixed(6)} estimated
+              </p>
+              <p>{call.error ?? call.pricingBasis}</p>
+              <pre>{JSON.stringify(call.usage ?? {}, null, 2)}</pre>
+            </details>
+          ))}
 
           <Queue jobs={d.jobs} projects={[p]} perform={perform} />
           <div className="section-heading">
@@ -1086,7 +1215,10 @@ function ProjectView({
                 {g.provider} / {g.model} · Attempt {g.attempt} · {g.status} ·{' '}
                 {money(g.actualUsd)}
               </summary>
-              <p>Request: {g.requestId}</p>
+              <p>Request: {g.remoteTaskId ?? g.requestId}</p>
+              <p>
+                {g.costBasis ?? 'Estimated cost'} · {money(g.estimatedUsd)}
+              </p>
               <pre>{g.prompt}</pre>
               <p>
                 {g.error ??
@@ -1114,7 +1246,7 @@ function ProjectView({
                   controls
                   preload="metadata"
                   src={`/media/${render.id}`}
-                  aria-label="Assembled development preview"
+                  aria-label="Assembled film preview"
                 >
                   <track
                     kind="captions"
@@ -1139,9 +1271,20 @@ function ProjectView({
                 <div className="notice">
                   <ShieldCheck size={20} />
                   <div>
-                    <strong>Development preview</strong>
+                    <strong>
+                      {p.videoProvider === 'runway'
+                        ? 'AI-generated film'
+                        : 'Development preview'}
+                    </strong>
                     <p>
-                      {p.narrationProvider==='openai'?'This preview combines test visuals with AI-generated speech, not a human voice.':'This preview contains test visuals and a tone.'} Technical checks do not evaluate story quality or factual accuracy.
+                      {p.videoProvider === 'runway'
+                        ? 'This film uses AI-generated video. '
+                        : 'This preview uses test visuals. '}
+                      {p.narrationProvider === 'openai'
+                        ? 'Narration is AI-generated, not a human voice.'
+                        : 'Audio is a test tone.'}{' '}
+                      Technical checks do not evaluate story quality or factual
+                      accuracy.
                     </p>
                   </div>
                 </div>
@@ -1181,8 +1324,9 @@ function ProjectView({
             <div>
               <strong>Publishing is disconnected</strong>
               <p>
-                Packages are local exports. Development previews need real
-                footage and human review before release. AI narration is disclosed in each package.
+                Packages are local exports. Review visuals, narration, factual
+                claims and rights before publishing manually. Synthetic media is
+                disclosed in each package.
               </p>
             </div>
           </div>
@@ -1191,7 +1335,8 @@ function ProjectView({
               <article className="panel" key={pack.id}>
                 <span className="eyebrow">{pack.platform}</span>
                 <h3>{pack.title}</h3>
-                <p>{pack.caption}</p><p className="helper">{pack.disclosure}</p>
+                <p>{pack.caption}</p>
+                <p className="helper">{pack.disclosure}</p>
                 <p>{pack.hashtags.map((h) => `#${h}`).join(' ')}</p>
                 <div className="download-links">
                   <a href={`/media/${pack.assetId}?download=1`}>Video ↗</a>
@@ -1268,7 +1413,7 @@ function SceneEditor({
               void act(`/api/scenes/${s.id}/edit`, {
                 prompt: f.get('prompt'),
                 narration: f.get('narration'),
-                provider: 'development',
+                provider: s.provider ?? 'development',
               })
                 .then(close)
                 .catch(() => {});
@@ -1430,7 +1575,19 @@ function AssetGrid({ assets }: { assets: Asset[] }) {
             >
               <track
                 kind="captions"
-                src={assets.filter(c=>c.projectId===a.projectId&&c.revision===a.revision&&c.type==='subtitles'&&c.path.endsWith('.vtt')).at(-1)?`/media/${assets.filter(c=>c.projectId===a.projectId&&c.revision===a.revision&&c.type==='subtitles'&&c.path.endsWith('.vtt')).at(-1)!.id}`:'/development.vtt'}
+                src={
+                  assets
+                    .filter(
+                      (c) =>
+                        c.projectId === a.projectId &&
+                        c.revision === a.revision &&
+                        c.type === 'subtitles' &&
+                        c.path.endsWith('.vtt'),
+                    )
+                    .at(-1)
+                    ? `/media/${assets.filter((c) => c.projectId === a.projectId && c.revision === a.revision && c.type === 'subtitles' && c.path.endsWith('.vtt')).at(-1)!.id}`
+                    : '/development.vtt'
+                }
                 srcLang="en"
                 label="Development audio description"
               />
@@ -1447,11 +1604,27 @@ function AssetGrid({ assets }: { assets: Asset[] }) {
             <audio
               src={`/media/${a.id}`}
               controls
-              aria-label={a.parameters.isSpeech?"AI-generated narration":"Development audio test tone"}
+              aria-label={
+                a.parameters.isSpeech
+                  ? 'AI-generated narration'
+                  : 'Development audio test tone'
+              }
             >
               <track
                 kind="captions"
-                src={assets.filter(c=>c.projectId===a.projectId&&c.revision===a.revision&&c.type==='subtitles'&&c.path.endsWith('.vtt')).at(-1)?`/media/${assets.filter(c=>c.projectId===a.projectId&&c.revision===a.revision&&c.type==='subtitles'&&c.path.endsWith('.vtt')).at(-1)!.id}`:'/development.vtt'}
+                src={
+                  assets
+                    .filter(
+                      (c) =>
+                        c.projectId === a.projectId &&
+                        c.revision === a.revision &&
+                        c.type === 'subtitles' &&
+                        c.path.endsWith('.vtt'),
+                    )
+                    .at(-1)
+                    ? `/media/${assets.filter((c) => c.projectId === a.projectId && c.revision === a.revision && c.type === 'subtitles' && c.path.endsWith('.vtt')).at(-1)!.id}`
+                    : '/development.vtt'
+                }
                 srcLang="en"
                 label="Test tone"
               />

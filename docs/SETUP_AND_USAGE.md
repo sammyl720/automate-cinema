@@ -16,11 +16,12 @@ There are two different kinds of credentials:
 | Deterministic concepts, scripts and storyboards | Working; template-based, not a live model | None |
 | OpenAI concepts, scripts, storyboards and speech | Implemented; opt-in per project | Server-side `OPENAI_API_KEY`; see [OpenAI setup](OPENAI_SETUP.md) |
 | FFmpeg rendering, subtitles and packaging | Working locally | None |
-| Runway, Higgsfield, ElevenLabs | Listed as unsupported | No; keys are not consumed |
+| Runway Gen-4.5 | Implemented; opt-in real video | `RUNWAY_API_KEY`; see [MVP guide](MVP_QUICKSTART.md) |
+| Higgsfield, ElevenLabs | Listed as unsupported | No; keys are not consumed |
 | Social publishing and analytics | Not connected | No; OAuth/account connection is not implemented |
 | PostgreSQL, Redis and S3 | Not used in this milestone | None |
 
-**Default development projects produce test footage and a tone. OpenAI projects can produce real creative text and spoken narration; their video is still a placeholder.** Technical export approval is not editorial or factual approval.
+**Default development projects produce test footage and a tone. OpenAI projects can produce real creative text and spoken narration; choose Runway separately for real video.** Technical export approval is not editorial or factual approval.
 
 ## 2. Install and start the studio
 
@@ -143,7 +144,7 @@ Keep the default loopback address for this guide. Changing `STUDIO_HOST` alone d
 
 OpenAI now supports real concepts, scripts, storyboards and spoken narration. Follow [Enable OpenAI](OPENAI_SETUP.md) to set the server key and choose providers for a new project. Existing development projects do not start making paid requests when a key is added.
 
-`VIDEO_PROVIDER_API_KEY` and `VOICE_PROVIDER_API_KEY` remain unused placeholders. Real video and social publishing are not connected. The first OpenAI request checks account access; a Configured badge only means the server has a key.
+`VIDEO_PROVIDER_API_KEY` and `VOICE_PROVIDER_API_KEY` remain unused placeholders. Runway real video uses `RUNWAY_API_KEY`; social publishing remains disconnected. See the [MVP guide](MVP_QUICKSTART.md). The first OpenAI request checks account access; a Configured badge only means the server has a key.
 
 ## 5. Create your first production
 
@@ -190,7 +191,7 @@ The displayed scores are deterministic development-rubric scores. They are not m
 - **Storyboard:** ordered scene cards, start/end times, camera direction and a simple timeline.
 - **Edit scene:** editable prompt and narration. Saving creates a scene revision and updates script history; it invalidates that scene's output and prior delivery packages.
 
-If you want to edit before generating, finish the active stage first. The current scene editor supports the development provider only; reference-image upload is not connected.
+If you want to edit before generating, finish the active stage first. The scene editor keeps the project’s selected video provider; reference-image upload is not connected.
 
 ### Generate scenes
 
@@ -370,7 +371,7 @@ To inspect a restored backup without replacing current data, point `STUDIO_DATA_
 | `spawn ffmpeg ENOENT` or `ffprobe ENOENT` | Install the missing executable or set its absolute path in `.env`, then restart. |
 | Render times out | Try a shorter draft or lower worker concurrency. Increase `JOB_TIMEOUT_MS` if appropriate. |
 | Regeneration or retry limit reached | The configured attempt cap was reached. Do not loop retries; preserve the project's history and investigate the failure. |
-| No spoken voice / plain colored video | Expected development output. Real video is not connected. Choose OpenAI narration in a new project for speech. |
+| No spoken voice / plain colored video | Expected development output. Choose Runway video and OpenAI narration in a new project for real footage and speech. |
 | Old delivery package disappeared after editing | Expected: scene revisions invalidate previous delivery packages. Generate current audio, render, evaluate and package again. |
 | Publish does not work | Publishing is explicitly unsupported. Download local packages from Delivery. |
 | SQLite experimental warning | Expected on the tested Node version; it is not itself a workflow failure. |

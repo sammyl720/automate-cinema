@@ -162,7 +162,7 @@ export function scenesFor(p: Project, c: Concept): Scene[] {
       endTime: (i + 1) * duration,
       prompt: '',
       negativePrompt: 'watermark, extra limbs, broken geometry, unwanted text',
-      provider: 'development',
+      provider: p.videoProvider ?? 'development',
       status: 'planned',
       revision: 1,
     };

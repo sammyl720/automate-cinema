@@ -1,6 +1,13 @@
+import { list } from './db';
+import type { Generation } from '../shared/domain';
 import { db, base, now, jobFromRow, event, transaction, jobs } from './db';
 import type { Job, JobType } from '../shared/domain';
 import { DomainError, retryDelay } from './policy';
+export class JobDeferred extends Error {
+  constructor(public delayMs = 10000) {
+    super('Waiting for video provider');
+  }
+}
 export function enqueue(
   projectId: string,
   type: JobType,
@@ -62,6 +69,12 @@ export function claim(timeout: number): Job | undefined {
 export function finish(job: Job, error?: unknown) {
   const current = db.prepare('SELECT status FROM jobs WHERE id=?').get(job.id);
   if (current?.status === 'cancelled') return;
+  if (error instanceof JobDeferred) {
+    db.prepare(
+      "UPDATE jobs SET status='queued',attempt=MAX(0,attempt-1),error=NULL,run_at=?,lease_until=0,updated_at=? WHERE id=?",
+    ).run(Date.now() + error.delayMs, now(), job.id);
+    return;
+  }
   const message =
     error instanceof Error ? error.message : error ? String(error) : undefined;
   const retry =
@@ -87,6 +100,17 @@ export function finish(job: Job, error?: unknown) {
   });
 }
 export function cancelJob(id: string) {
+  if (
+    list<Generation>('generation').some(
+      (g) =>
+        g.jobId === id &&
+        g.provider === 'runway' &&
+        !['failed', 'completed'].includes(g.status),
+    )
+  )
+    throw new DomainError(
+      'Runway submission has started. The task will keep being checked to retain its result and billing; pause the workflow to stop later stages.',
+    );
   const r = db.prepare('SELECT * FROM jobs WHERE id=?').get(id);
   if (!r) throw new DomainError('Job not found', 404);
   if (!['queued', 'running'].includes(String(r.status)))

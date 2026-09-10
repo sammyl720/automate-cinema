@@ -3,7 +3,13 @@ import { resolve } from 'node:path';
 const parsed = z
   .object({
     OPENAI_API_KEY: z.string().default(''),
-    OPENAI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(150000).default(90000),
+    RUNWAY_API_KEY: z.string().default(''),
+    OPENAI_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(150000)
+      .default(90000),
     STUDIO_HOST: z.string().default('127.0.0.1'),
     STUDIO_PORT: z.coerce.number().int().min(1024).max(65535).default(4311),
     STUDIO_DATA_DIR: z.string().default('./data'),

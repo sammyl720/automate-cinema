@@ -61,7 +61,7 @@ void test('retry backoff increases and caps at 60 seconds', () => {
 });
 void test('routing excludes unsupported capabilities and disconnected vendors', () => {
   const provider = {
-    id: 'test',
+    id: 'development',
     status: 'connected',
     costPerSecond: 1,
     capabilities: {
@@ -72,7 +72,7 @@ void test('routing excludes unsupported capabilities and disconnected vendors', 
   } as ProviderInfo;
   assert.equal(
     selectVideoProvider({ durationSeconds: 5 }, p, [provider]).id,
-    'test',
+    'development',
   );
   assert.throws(() =>
     selectVideoProvider({ durationSeconds: 6 }, p, [provider]),

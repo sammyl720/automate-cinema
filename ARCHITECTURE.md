@@ -2,7 +2,7 @@
 
 ## Scope and architectural decision
 
-The repository was empty. The first delivery is a complete, testable local production flow through platform packaging, with development video and opt-in OpenAI creative/speech providers. It deliberately does not impersonate unavailable AI or publishing integrations.
+The repository was empty. The first delivery is a complete, testable local production flow through platform packaging, with development or Runway video and opt-in OpenAI creative/speech providers. It deliberately does not impersonate unavailable AI or publishing integrations.
 
 The modular monolith has three process roles:
 
@@ -136,7 +136,7 @@ Next implementation order:
 
 1. Introduce authenticated workspaces, relational PostgreSQL migrations and managed object storage.
 2. Extend the OpenAI creative adapter with independent research verification and moderation.
-3. Add a production video provider with durable submit/poll/reconcile jobs; extend the implemented speech pipeline with word alignment.
+3. Extend Runway with unknown-submission billing reconciliation and reference-image continuity; extend speech with word alignment.
 4. Add multimodal asset/film critique, bounded selective revisions and layered audio mixing.
 5. Add one publishing platform with explicit publication permission, then analytics and experiments.
 
@@ -149,4 +149,8 @@ Projects now have `creativeProvider`, `narrationProvider` and `voice` fields, de
 
 `openai-client.ts` owns fixed API endpoints, bounded response reads, sanitized errors, request timeouts and paid-call accounting. Each `apiCall` record persists project/job/scene IDs, a stable logical key, model, request, outcome, response checkpoint, provider request ID, usage, estimate and calculated charge. Reservations and settlement are immediate SQLite transactions. Completed results are replayed without another network call. Network/server uncertainty retains the reservation and blocks automatic paid retries; reconciliation against provider billing remains a manual operational follow-up. There is no automatic billing reconciliation service.
 
-OpenAI keys stay in the server environment; no key is returned by the API. Project selection opts into paid calls; assisted mode authorizes creative requests when started but pauses before video generation. Rates are centralized and documented in [OpenAI setup](docs/OPENAI_SETUP.md). They are calculations from published rates, not imported invoices. Publishing remains disabled, video remains a development pattern, and all real speech is explicitly disclosed as synthetic.
+OpenAI keys stay in the server environment; no key is returned by the API. Project selection opts into paid calls; assisted mode authorizes creative requests when started but pauses before video generation. Rates are centralized and documented in [OpenAI setup](docs/OPENAI_SETUP.md). They are calculations from published rates, not imported invoices. Publishing remains disabled, video is selected separately, and all real speech is explicitly disclosed as synthetic.
+
+## Runway MVP extension
+
+`runway.ts` persists a Generation before submitting one paid request. A saved remote task ID is reused across worker restarts. `JobDeferred` releases the worker slot and schedules status polling without consuming failure retries; a 45-minute pending limit pauses the local job. Unknown submission outcomes retain their reservation and never resubmit automatically. Terminal billing and project spend settle transactionally once. Output is downloaded without API credentials or redirects to a bounded local file; only approved HTTPS CDN/provider hosts are accepted. Assets record source dimensions, provider, task ID and synthetic provenance. Video prompts and scene lengths are validated before submission. Remote cancellation and unknown-submission reconciliation remain manual operational work.
