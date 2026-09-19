@@ -5,7 +5,7 @@ import type { Job, JobType } from '../shared/domain';
 import { DomainError, retryDelay } from './policy';
 export class JobDeferred extends Error {
   constructor(public delayMs = 10000) {
-    super('Waiting for video provider');
+    super('Waiting for media provider');
   }
 }
 export function enqueue(

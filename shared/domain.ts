@@ -29,6 +29,9 @@ export const projectInput = z.object({
   aspect: z.enum(['9:16', '16:9', '1:1']).default('9:16'),
   mode: z.enum(['manual', 'assisted', 'autonomous']).default('assisted'),
   quality: z.enum(['draft', 'final']).default('draft'),
+  productionApproach: z
+    .enum(['text_to_video', 'image_to_video'])
+    .default('text_to_video'),
   videoProvider: z.enum(['development', 'runway']).default('development'),
   decisionProvider: z.enum(['development', 'jev']).default('development'),
   creativeProvider: z.enum(['development', 'openai']).default('development'),
@@ -79,6 +82,11 @@ export interface RecordBase {
 export interface Project extends RecordBase, z.infer<typeof projectInput> {
   state: State;
   selectedConceptId?: string;
+  referencePrompt?: string;
+  referenceAssetId?: string;
+  referenceApproved?: boolean;
+  referenceRevision?: number;
+  continuityNotes?: string;
   automationRunning: boolean;
   publishingEnabled: boolean;
   spentUsd: number;
@@ -131,6 +139,11 @@ export interface Scene extends RecordBase, z.infer<typeof sceneOutput> {
   status: 'planned' | 'generating' | 'generated' | 'approved' | 'rejected';
   revision: number;
   assetId?: string;
+  imagePrompt?: string;
+  storyboardAssetId?: string;
+  storyboardApproved?: boolean;
+  storyboardRevision?: number;
+  reviewFrameIds?: string[];
 }
 export interface Script extends RecordBase {
   projectId: string;
@@ -150,6 +163,9 @@ export interface Asset extends RecordBase {
   projectId: string;
   sceneId?: string;
   type:
+    | 'reference_image'
+    | 'storyboard_image'
+    | 'review_frame'
     | 'video'
     | 'narration'
     | 'music'
@@ -191,6 +207,9 @@ export const jobTypes = [
   'concepts',
   'script',
   'storyboard',
+  'visual_plan',
+  'reference_image',
+  'storyboard_image',
   'preflight',
   'generate',
   'narration',

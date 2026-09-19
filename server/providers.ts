@@ -81,13 +81,15 @@ export const providerRegistry: ProviderInfo[] = [
   },
   {
     id: 'runway',
-    name: 'Runway · video',
+    name: 'Runway · images & video',
     status: 'authentication_required',
     demo: false,
     capabilities: {
       ...caps,
       textToVideo: true,
       audioGeneration: false,
+      imageToVideo: true,
+      referenceImages: true,
       maximumDurationSeconds: 10,
       supportedAspectRatios: ['9:16', '16:9'],
     },

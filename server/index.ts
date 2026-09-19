@@ -21,10 +21,14 @@ import {
   reviewScene,
   updateBible,
   approvePreflight,
+  enableImageFirst,
+  approveVisual,
+  reviseVisual,
 } from './service';
 import {
   jobTypes,
   type Project,
+  type Scene,
   type Asset,
   type ResearchSource,
 } from '../shared/domain';
@@ -154,6 +158,12 @@ export function createApi() {
           if (action === 'select') {
             const parsed = z.object({ conceptId: z.uuid() }).parse(input);
             selectConcept(id, parsed.conceptId);
+          } else if (action === 'image-first') {
+            enableImageFirst(id);
+          } else if (action === 'approve-reference') {
+            approveVisual(id, undefined, input);
+          } else if (action === 'revise-reference') {
+            reviseVisual(id, undefined, input);
           } else if (action === 'approve-preflight') {
             approvePreflight(id, input);
           } else if (action === 'run') {
@@ -204,11 +214,18 @@ export function createApi() {
         }
       }
       const sceneMatch = path.match(
-        /^\/api\/scenes\/([\w-]+)\/(edit|regenerate|approve|reject)$/,
+        /^\/api\/scenes\/([\w-]+)\/(edit|regenerate|approve|reject|approve-still|revise-still)$/,
       );
       if (method === 'POST' && sceneMatch) {
         const [, id, action] = sceneMatch;
-        if (action === 'edit') editScene(id, await body(req));
+        if (action === 'approve-still' || action === 'revise-still') {
+          const scene = get<Scene>('scene', id);
+          (action === 'approve-still' ? approveVisual : reviseVisual)(
+            scene.projectId,
+            id,
+            await body(req),
+          );
+        } else if (action === 'edit') editScene(id, await body(req));
         else if (action === 'regenerate') regenerate(id);
         else reviewScene(id, action === 'approve');
         json(res, 202, { ok: true });

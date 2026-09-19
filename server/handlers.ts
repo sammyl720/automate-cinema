@@ -11,12 +11,16 @@ import type {
   PlatformPackage,
 } from '../shared/domain';
 import { trace } from './creative';
-import { creativeProvider, persistStoryboard } from './creative-providers';
+import {
+  creativeProvider,
+  persistStoryboard,
+  planVisuals,
+} from './creative-providers';
 import { generateRunway } from './runway';
 import { decisionProvider, assertPreflight } from './decision-providers';
 import { generateMusic } from './music';
 import { spokenNarration } from './narration';
-import { transition, assertScriptReady } from './service';
+import { transition, assertScriptReady, assertClipsReviewed } from './service';
 import { checkBudget, selectVideoProvider, DomainError } from './policy';
 import {
   providerRegistry,
@@ -65,6 +69,13 @@ export async function handle(job: Job, signal: AbortSignal) {
       job,
       signal,
     );
+  if (job.type === 'visual_plan') await planVisuals(p, job, signal);
+  if (job.type === 'reference_image' || job.type === 'storyboard_image') {
+    await generateRunway(job, signal);
+    return;
+  }
+  if (['narration', 'music', 'render'].includes(job.type))
+    assertClipsReviewed(p, list<Scene>('scene', p.id));
   if (job.type === 'preflight')
     await decisionProvider(p).evaluateCreativePreflight(
       p,

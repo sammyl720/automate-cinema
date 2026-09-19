@@ -7,7 +7,7 @@ This local MVP creates three scenes from a brief, generates their video with Run
 Use your project folder outside iCloud, such as `~/Developer/automate-cinema-recovered`, and run `nvm use`. Install dependencies with `npm ci` only for a fresh checkout, with the studio stopped. FFmpeg and FFprobe must be on PATH.
 
 - **OpenAI:** Create a project API key in [API key settings](https://platform.openai.com/api-keys), enable API billing, and ensure access to `gpt-4.1-mini` and `tts-1`. A ChatGPT subscription does not configure these API credentials. See [OpenAI setup](OPENAI_SETUP.md).
-- **Runway:** Create a developer account at [Runway Dev](https://dev.runwayml.com), create an organization/API key, and fund its API credits. Runway website subscription credits and developer API credits are separate. The adapter uses `gen4.5` through the text-to-video API.
+- **Runway:** Create a developer account at [Runway Dev](https://dev.runwayml.com), create an organization/API key, and fund its API credits. Runway website subscription credits and developer API credits are separate. The adapters use `gen4_image` for reference/still images and `gen4.5` for image-to-video or text-to-video.
 
 Stop the studio and edit its local `.env` (copy `.env.example` only if `.env` does not already exist):
 
@@ -24,9 +24,10 @@ Do not paste keys into chat, the dashboard, `.env.example`, or Git. Restrict `.e
 2. Click **Use AI MVP setup**. This selects Runway video, OpenAI creative generation, OpenAI narration, portrait framing and Assisted control.
 3. Enter a title and brief. Start with **15 seconds**, **Fiction**, and a **$5 maximum budget**. Try: “A lighthouse keeper sees a faint answer across an empty ocean. Three shots move from isolation to discovery to hope.”
 4. Create the production and choose **Run workflow**. This authorizes paid OpenAI concepts, script and storyboard requests. It pauses before video generation. If no concept meets the editorial threshold, select a concept manually and resume.
-5. Review the three scenes. Edit their prompts or narration if necessary. Choose **Generate film** to authorize the Runway clips, selected narration and assembly. The remaining workflow continues automatically.
-6. Watch progress in Generations. Remote video tasks are checked between worker runs; closing the browser does not stop the worker. Runway video can take several minutes.
-7. Open **Review**, play the assembled film, and choose **Download MP4**. Delivery contains subtitles, a thumbnail and platform metadata. Review quality, factual claims and rights yourself before posting.
+5. The preset now defaults to **image_to_video**. Choose **Plan consistent visuals**, generate and approve the shared reference, then generate and approve all three starting images. Follow the [image-first walkthrough](VIDEO_QUALITY.md).
+6. Run Jev preflight if selected, then choose **Animate approved images**. Watch progress in Generations. Remote tasks may take several minutes; closing the browser does not stop the worker.
+7. Inspect the sampled frames and play every clip. **Approve clip** for all three, then choose **Run workflow** to generate audio and assemble/package the film.
+8. Open **Review**, play the assembled film, and choose **Download MP4**. Review the finished film with sound before posting. Choosing the legacy **text_to_video** workflow instead retains the original Generate film flow.
 
 All provider choices are per project. Existing development projects stay free and keep their test visuals. Selecting OpenAI narration without Runway video still produces a film with test patterns.
 
@@ -34,10 +35,10 @@ All provider choices are per project. Existing development projects stay free an
 
 - Three scenes; total duration 6–30 seconds; each Runway scene 2–10 seconds. Fractional scene durations round up for the generation request and are trimmed in assembly.
 - Portrait or landscape. Runway source clips are 720p; the export is resized to the platform dimensions. Upscaling does not add detail. Square output is available only in development mode.
-- Runway scene prompts are limited to 1,000 characters. Generated prompts are compacted to that limit; manually edited longer prompts are rejected before submission.
+- Runway scene prompts are limited to 1,000 characters. Instructions remain complete; overly long essential descriptions and manually edited prompts are rejected before video submission.
 - Standard Gen-4.5 video is **12 credits per requested second**, with credits priced at **$0.01**: about **$1.80 for three 5-second clips**, before OpenAI and tax. Each revision can incur new costs. Rates checked 2026-09-09; verify current pricing before use.
 - Estimated video costs are reserved before submission. When available, returned Runway credits determine settlement; otherwise successful tasks use the published rate and are labeled accordingly. These figures exclude tax and are not imported invoices. Unexpected higher provider estimates pause the job and increase its reservation.
-- The MVP does not include reference-image identity locking, automated artistic critique, independent fact checking, music generation, publishing or multi-user hosting. Separate text-to-video shots may not preserve a character's appearance perfectly.
+- Image-first production shares a visual reference across approved starting images and requires human clip review. Identity is guided, not guaranteed. Automated artistic critique, independent fact checking, publishing and multi-user hosting remain outside this MVP. ElevenLabs narration and music are available; see [audio setup](AUDIO_SETUP.md).
 
 ## Recovery and cancellation
 

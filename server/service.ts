@@ -40,6 +40,13 @@ import { judgeDecision } from './decision-policy';
 import { constructPrompt } from './creative';
 export function createProject(input: unknown): Project {
   const data = projectInput.parse(input);
+  if (
+    data.productionApproach === 'image_to_video' &&
+    (data.videoProvider !== 'runway' || data.creativeProvider !== 'openai')
+  )
+    throw new DomainError(
+      'Image-first production requires Runway video and OpenAI creative planning.',
+    );
   if (data.decisionProvider === 'jev') requireTypeSafe();
   if (data.videoProvider === 'runway') {
     requireRunway();
@@ -187,6 +194,9 @@ export function requestStage(projectId: string, type: JobType) {
     concepts: ['idea', 'researching'],
     script: ['concept_selected'],
     storyboard: ['script_drafting'],
+    visual_plan: ['assets_planned', 'generating', 'revision_required'],
+    reference_image: ['assets_planned', 'generating', 'revision_required'],
+    storyboard_image: ['assets_planned', 'generating', 'revision_required'],
     preflight: ['assets_planned', 'generating', 'revision_required'],
     generate: ['assets_planned', 'revision_required', 'generating'],
     narration: ['generating'],
@@ -210,7 +220,74 @@ export function requestStage(projectId: string, type: JobType) {
     throw new DomainError(
       'Jev preflight requires a storyboard and Jev decision provider.',
     );
+  if (['visual_plan', 'reference_image', 'storyboard_image'].includes(type)) {
+    if (p.productionApproach !== 'image_to_video')
+      throw new DomainError('Enable image-first production first.');
+    assertScriptReady(p);
+    if (type === 'visual_plan' && p.referencePrompt)
+      throw new DomainError(
+        'Visual plan already exists. Edit its prompts instead.',
+      );
+    if (type === 'reference_image') {
+      if (!p.referencePrompt || p.referenceAssetId)
+        throw new DomainError(
+          'Create a visual plan or revise the existing reference first.',
+        );
+      checkBudget(
+        p,
+        0.08,
+        d.generations.filter((g) => g.model === 'gen4_image' && !g.sceneId)
+          .length,
+      );
+      enqueue(
+        p.id,
+        type,
+        `${p.id}:reference:r${p.referenceRevision ?? 1}`,
+        undefined,
+        { visualRevision: p.referenceRevision ?? 1 },
+      );
+      return;
+    }
+    if (type === 'storyboard_image') {
+      if (!p.referenceApproved || !p.referenceAssetId)
+        throw new DomainError('Approve the shared visual reference first.');
+      const pending = d.scenes.filter((s) => !s.storyboardAssetId);
+      if (!pending.length)
+        throw new DomainError('All storyboard images already exist.');
+      checkBudget(p, pending.length * 0.08, 0);
+      if (
+        p.generationAttempts + pending.length >
+        p.budget.maximumTotalGenerationAttempts
+      )
+        throw new DomainError(
+          'Total generation attempt limit would be exceeded',
+        );
+      for (const s of pending) {
+        if (!s.imagePrompt)
+          throw new DomainError('Create a visual plan first.');
+        checkBudget(
+          p,
+          0,
+          d.generations.filter(
+            (g) => g.sceneId === s.id && g.model === 'gen4_image',
+          ).length,
+        );
+      }
+      transaction(() => {
+        for (const s of pending)
+          enqueue(
+            p.id,
+            type,
+            `${p.id}:still:${s.id}:r${s.storyboardRevision ?? 1}`,
+            s.id,
+            { visualRevision: s.storyboardRevision ?? 1 },
+          );
+      });
+      return;
+    }
+  }
   if (type === 'generate') {
+    assertVisualsReady(p, d.scenes);
     assertResearch(p);
     assertPreflight(p);
     if (!d.scenes.length) throw new DomainError('Create a storyboard first');
@@ -233,7 +310,13 @@ export function requestStage(projectId: string, type: JobType) {
     )
       throw new DomainError('Total generation attempt limit would be exceeded');
     for (const s of pending)
-      checkBudget(p, 0, d.generations.filter((g) => g.sceneId === s.id).length);
+      checkBudget(
+        p,
+        0,
+        d.generations.filter(
+          (g) => g.sceneId === s.id && g.model !== 'gen4_image',
+        ).length,
+      );
     transaction(() => {
       transition(p, 'generating');
       event(p.id, 'generation.estimated', {
@@ -241,10 +324,18 @@ export function requestStage(projectId: string, type: JobType) {
         sceneCount: pending.length,
       });
       for (const s of pending)
-        enqueue(p.id, 'generate', `${p.id}:scene:${s.id}:r${s.revision}`, s.id);
+        enqueue(
+          p.id,
+          'generate',
+          `${p.id}:scene:${s.id}:r${s.revision}`,
+          s.id,
+          { sceneRevision: s.revision },
+        );
     });
     return;
   }
+  if (['render', 'narration', 'music'].includes(type))
+    assertClipsReviewed(p, d.scenes);
   if (
     ['render', 'narration', 'music'].includes(type) &&
     (!d.scenes.length ||
@@ -344,7 +435,15 @@ export function advance(id: string) {
     }
     if (p.state === 'concept_selected') requestStage(id, 'script');
     else if (p.state === 'script_drafting') requestStage(id, 'storyboard');
-    else if (p.state === 'assets_planned') {
+    else if (
+      p.productionApproach === 'image_to_video' &&
+      ['assets_planned', 'generating', 'revision_required'].includes(p.state) &&
+      (!p.referenceApproved || d.scenes.some((s) => !s.storyboardApproved))
+    ) {
+      save('project', { ...p, automationRunning: false, error: undefined });
+      event(id, 'approval.required', { stage: 'visual_references' });
+      return;
+    } else if (p.state === 'assets_planned') {
       if (p.decisionProvider === 'jev') {
         if (preflightDecisions(p).some((d) => !d)) {
           requestStage(id, 'preflight');
@@ -360,6 +459,14 @@ export function advance(id: string) {
       requestStage(id, 'generate');
     } else if (p.state === 'generating') {
       if (d.scenes.some((s) => !s.assetId)) return;
+      if (
+        p.productionApproach === 'image_to_video' &&
+        d.scenes.some((s) => s.status !== 'approved')
+      ) {
+        save('project', { ...p, automationRunning: false, error: undefined });
+        event(id, 'approval.required', { stage: 'finished_clips' });
+        return;
+      }
       if (
         !d.assets.some(
           (a) =>
@@ -422,9 +529,13 @@ export function editScene(id: string, input: unknown) {
   const updated = save('scene', {
     ...s,
     ...data,
+    ...(p.productionApproach === 'image_to_video'
+      ? { cameraDirection: data.prompt }
+      : {}),
     revision: s.revision + 1,
     status: 'planned',
     assetId: undefined,
+    reviewFrameIds: [],
   } satisfies Scene);
   const current = list<Script>('script', p.id).at(-1);
   if (current)
@@ -450,6 +561,7 @@ export function invalidateOutput(p: Project) {
     revision: p.revision + 1,
     state: 'generating',
     automationRunning: false,
+    error: undefined,
   });
   event(p.id, 'output.invalidated', { reason: 'Scene revision changed' });
 }
@@ -462,8 +574,9 @@ export function regenerate(id: string) {
   checkBudget(
     p,
     provider.costPerSecond * Math.ceil(s.durationSeconds),
-    list<Generation>('generation', p.id).filter((g) => g.sceneId === s.id)
-      .length,
+    list<Generation>('generation', p.id).filter(
+      (g) => g.sceneId === s.id && g.model !== 'gen4_image',
+    ).length,
   );
   invalidateOutput(p);
   save('sceneRevision', {
@@ -477,13 +590,15 @@ export function regenerate(id: string) {
     revision: s.revision + 1,
     status: 'planned',
     assetId: undefined,
+    reviewFrameIds: [],
   } satisfies Scene);
-  if (p.decisionProvider !== 'jev')
+  if (p.decisionProvider !== 'jev' && p.productionApproach !== 'image_to_video')
     enqueue(
       s.projectId,
       'generate',
       `${s.projectId}:scene:${id}:r${updated.revision}`,
       id,
+      { sceneRevision: updated.revision },
     );
   event(s.projectId, 'scene.regeneration_requested', { sceneId: id });
 }
@@ -544,4 +659,136 @@ export function approvePreflight(id: string, input: unknown) {
     });
     save('project', { ...p, error: undefined });
   });
+}
+
+export function assertVisualsReady(p: Project, scenes: Scene[]) {
+  if (
+    p.productionApproach === 'image_to_video' &&
+    (!p.referenceAssetId ||
+      !p.referenceApproved ||
+      scenes.length !== 3 ||
+      scenes.some((s) => !s.storyboardAssetId || !s.storyboardApproved))
+  )
+    throw new DomainError(
+      'Approve the shared reference and all three starting images before generating clips.',
+    );
+}
+export function assertClipsReviewed(p: Project, scenes: Scene[]) {
+  if (
+    p.productionApproach === 'image_to_video' &&
+    (scenes.length !== 3 ||
+      scenes.some((s) => !s.assetId || s.status !== 'approved'))
+  )
+    throw new DomainError(
+      'Watch and approve all three clips before narration, music or assembly.',
+    );
+}
+export function enableImageFirst(id: string) {
+  const p = get<Project>('project', id);
+  if (isBusy(id)) throw new DomainError('Finish active jobs first.');
+  if (p.videoProvider !== 'runway' || p.creativeProvider !== 'openai')
+    throw new DomainError('Image-first production requires Runway and OpenAI.');
+  if (p.productionApproach === 'image_to_video') return;
+  if (
+    ![
+      'assets_planned',
+      'generating',
+      'revision_required',
+      'approved',
+      'packaged',
+    ].includes(p.state)
+  )
+    throw new DomainError('Build the storyboard first.');
+  assertScriptReady(p);
+  transaction(() => {
+    invalidateOutput(p);
+    save('project', {
+      ...get<Project>('project', id),
+      productionApproach: 'image_to_video',
+    });
+    for (const s of list<Scene>('scene', id))
+      save('scene', {
+        ...s,
+        revision: s.revision + 1,
+        assetId: undefined,
+        reviewFrameIds: [],
+        status: 'planned',
+      });
+  });
+  event(id, 'production.image_first_enabled');
+}
+export function reviseVisual(
+  id: string,
+  sceneId: string | undefined,
+  input: unknown,
+) {
+  const p = get<Project>('project', id);
+  if (isBusy(id) || p.productionApproach !== 'image_to_video')
+    throw new DomainError('Finish active work before revising images.');
+  const { prompt } = z
+    .object({
+      prompt: z
+        .string()
+        .trim()
+        .min(20)
+        .max(sceneId ? 800 : 900),
+    })
+    .parse(input);
+  const scenes = list<Scene>('scene', id);
+  if (sceneId && !scenes.some((s) => s.id === sceneId))
+    throw new DomainError('Scene belongs to another project', 404);
+  if (!p.referencePrompt)
+    throw new DomainError('Create the visual plan first.');
+  transaction(() => {
+    invalidateOutput(p);
+    if (!sceneId)
+      save('project', {
+        ...get<Project>('project', id),
+        referencePrompt: prompt,
+        referenceAssetId: undefined,
+        referenceApproved: false,
+        referenceRevision: (p.referenceRevision ?? 1) + 1,
+      });
+    for (const s of scenes.filter((s) => !sceneId || s.id === sceneId))
+      save('scene', {
+        ...s,
+        imagePrompt: sceneId ? prompt : s.imagePrompt,
+        ...(sceneId ? { visualDescription: prompt } : {}),
+        storyboardRevision: (s.storyboardRevision ?? 1) + 1,
+        storyboardAssetId: undefined,
+        storyboardApproved: false,
+        revision: s.revision + 1,
+        assetId: undefined,
+        reviewFrameIds: [],
+        status: 'planned',
+      });
+  });
+  event(id, 'visual.revised', { sceneId });
+}
+export function approveVisual(
+  id: string,
+  sceneId: string | undefined,
+  input: unknown,
+) {
+  const p = get<Project>('project', id);
+  if (isBusy(id) || p.productionApproach !== 'image_to_video')
+    throw new DomainError('Finish active work before reviewing images.');
+  const { assetId } = z.object({ assetId: z.uuid() }).parse(input);
+  if (sceneId) {
+    const s = get<Scene>('scene', sceneId);
+    if (
+      s.projectId !== id ||
+      s.storyboardAssetId !== assetId ||
+      !p.referenceApproved
+    )
+      throw new DomainError(
+        'Image changed. Refresh and review the current image.',
+      );
+    save('scene', { ...s, storyboardApproved: true });
+  } else {
+    if (p.referenceAssetId !== assetId)
+      throw new DomainError('Reference changed. Refresh and review it.');
+    save('project', { ...p, referenceApproved: true, error: undefined });
+  }
+  event(id, 'visual.approved', { sceneId, assetId });
 }

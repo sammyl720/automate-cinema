@@ -1,12 +1,19 @@
 import { assertPreflight } from './decision-providers';
 import { z } from 'zod';
-import { open, rename, rm } from 'node:fs/promises';
+import { open, readFile, rename, rm } from 'node:fs/promises';
 import { config } from './config';
 import { base, get, list, save, transaction } from './db';
 import { checkBudget, DomainError } from './policy';
 import { JobDeferred } from './queue';
-import { assetFile, mediaPath, prepareDir, probe } from './media';
-import type { Generation, Job, Project, Scene } from '../shared/domain';
+import {
+  assetFile,
+  mediaPath,
+  prepareDir,
+  probe,
+  runProcess,
+  reviewFrames,
+} from './media';
+import type { Asset, Generation, Job, Project, Scene } from '../shared/domain';
 
 export const RUNWAY_MODEL = 'gen4.5';
 export const RUNWAY_USD_PER_SECOND = 0.12;
@@ -93,7 +100,7 @@ export function validateRunwayOutputUrl(value: string) {
   }
   return url.toString();
 }
-async function downloadVideo(url: string, key: string, signal: AbortSignal) {
+async function downloadMedia(url: string, key: string, signal: AbortSignal) {
   const response = await runwayTransport.fetch(validateRunwayOutputUrl(url), {
     redirect: 'error',
     signal: AbortSignal.any([signal, AbortSignal.timeout(90000)]),
@@ -113,7 +120,7 @@ async function downloadVideo(url: string, key: string, signal: AbortSignal) {
       size += next.value.byteLength;
       if (size > 250_000_000)
         throw new DomainError(
-          'Runway video exceeded the 250 MB download limit.',
+          'Runway media exceeded the 250 MB download limit.',
         );
       let offset = 0;
       while (offset < next.value.length) {
@@ -137,42 +144,109 @@ async function downloadVideo(url: string, key: string, signal: AbortSignal) {
 export async function generateRunway(job: Job, signal: AbortSignal) {
   requireRunway();
   const p = get<Project>('project', job.projectId);
-  if (!job.sceneId) throw new DomainError('Missing video scene');
-  const scene = get<Scene>('scene', job.sceneId);
-  if (scene.assetId) return;
-  if (p.aspect === '1:1')
-    throw new DomainError('Runway MVP supports portrait and landscape video.');
-  const duration = runwayDuration(scene.durationSeconds);
-  if (scene.prompt.length > 1000)
+  const image =
+    job.type === 'reference_image' || job.type === 'storyboard_image';
+  const reference = job.type === 'reference_image';
+  const scene = job.sceneId ? get<Scene>('scene', job.sceneId) : undefined;
+  if (!reference && (!scene || scene.projectId !== p.id))
+    throw new DomainError('Missing project scene');
+  const existingAsset = reference
+    ? p.referenceAssetId
+    : image
+      ? scene?.storyboardAssetId
+      : scene?.assetId;
+  // Older jobs encode their revision in the idempotency key, before payload snapshots existed.
+  const legacyRevision = job.key.match(/:r(\d+)$/)?.[1];
+  const expectedRevision =
+    (image ? job.payload.visualRevision : job.payload.sceneRevision) ??
+    (legacyRevision ? Number(legacyRevision) : undefined);
+  const currentRevision = reference
+    ? (p.referenceRevision ?? 1)
+    : image
+      ? (scene!.storyboardRevision ?? 1)
+      : scene!.revision;
+  if (expectedRevision !== undefined && expectedRevision !== currentRevision)
     throw new DomainError(
-      'Shorten the scene prompt to 1,000 characters for Runway.',
+      'This job belongs to an older visual revision. Its paid task is retained in Generations; it cannot replace the current selection.',
     );
+  if (existingAsset) return;
+  if (p.aspect === '1:1')
+    throw new DomainError(
+      'Runway supports portrait and landscape in this studio.',
+    );
+  const duration = image ? 0 : runwayDuration(scene!.durationSeconds);
+  const prompt = reference
+    ? p.referencePrompt
+    : image
+      ? scene!.imagePrompt
+        ? `@identity. ${scene!.imagePrompt}`
+        : undefined
+      : scene!.prompt;
+  if (!prompt || prompt.length > 1000)
+    throw new DomainError('Use a complete prompt of at most 1,000 characters.');
+  const model = image ? 'gen4_image' : RUNWAY_MODEL;
+  const targetRevision = reference
+    ? (p.referenceRevision ?? 1)
+    : image
+      ? (scene!.storyboardRevision ?? 1)
+      : scene!.revision;
+  const parentId = reference
+    ? undefined
+    : image
+      ? p.referenceAssetId
+      : p.productionApproach === 'image_to_video'
+        ? scene!.storyboardAssetId
+        : undefined;
   let generation = list<Generation>('generation', p.id).find(
     (g) => g.jobId === job.id,
   );
   if (!generation) {
     // Gate new purchases without preventing recovery of a task already submitted.
-    assertPreflight(p);
+    if (!image) assertPreflight(p);
+    if (image && p.productionApproach !== 'image_to_video')
+      throw new DomainError('Enable image-first production first.');
+    if (
+      !reference &&
+      p.productionApproach === 'image_to_video' &&
+      (!p.referenceApproved ||
+        !p.referenceAssetId ||
+        (!image && (!scene!.storyboardApproved || !scene!.storyboardAssetId)))
+    )
+      throw new DomainError(
+        'Approve the visual reference and scene starting images before continuing.',
+      );
+    const parent = parentId ? get<Asset>('asset', parentId) : undefined;
+    if (
+      parent &&
+      (parent.projectId !== p.id ||
+        (image
+          ? parent.type !== 'reference_image'
+          : parent.type !== 'storyboard_image' || parent.sceneId !== scene!.id))
+    )
+      throw new DomainError(
+        'Image does not belong to this production and scene.',
+      );
+    const inputImage = parent ? await imageDataUri(parent, signal) : undefined;
     signal.throwIfAborted();
     generation = transaction(() => {
       const fresh = get<Project>('project', p.id);
-      const cost = duration * RUNWAY_USD_PER_SECOND;
+      const cost = image ? 0.08 : duration * RUNWAY_USD_PER_SECOND;
       checkBudget(
         fresh,
         cost,
         list<Generation>('generation', p.id).filter(
-          (g) => g.sceneId === scene.id,
+          (g) => g.sceneId === scene?.id && g.model === model,
         ).length,
       );
       const record = save<Generation>('generation', {
         ...base(),
         projectId: p.id,
-        sceneId: scene.id,
+        sceneId: scene?.id,
         jobId: job.id,
         provider: 'runway',
-        model: RUNWAY_MODEL,
+        model,
         requestId: job.key,
-        prompt: scene.prompt,
+        prompt,
         attempt: job.attempt,
         estimatedUsd: cost,
         actualUsd: 0,
@@ -183,17 +257,38 @@ export async function generateRunway(job: Job, signal: AbortSignal) {
         reservedUsd: fresh.reservedUsd + cost,
         generationAttempts: fresh.generationAttempts + 1,
       });
-      save('scene', { ...scene, provider: 'runway', status: 'generating' });
+      if (scene && !image)
+        save('scene', { ...scene, provider: 'runway', status: 'generating' });
       return record;
     });
     try {
-      const response = await request('text_to_video', 'POST', signal, {
-        model: RUNWAY_MODEL,
-        promptText: scene.prompt,
-        duration,
-        ratio: p.aspect === '9:16' ? '720:1280' : '1280:720',
-        outputFormat: 'mp4',
-      });
+      const response = await request(
+        image
+          ? 'text_to_image'
+          : inputImage
+            ? 'image_to_video'
+            : 'text_to_video',
+        'POST',
+        signal,
+        image
+          ? {
+              model,
+              promptText: prompt,
+              ratio: p.aspect === '9:16' ? '1080:1920' : '1920:1080',
+              ...(inputImage
+                ? { referenceImages: [{ uri: inputImage, tag: 'identity' }] }
+                : {}),
+            }
+          : {
+              model,
+              promptText: prompt,
+              duration,
+              ratio: p.aspect === '9:16' ? '720:1280' : '1280:720',
+              ...(inputImage
+                ? { promptImage: inputImage }
+                : { outputFormat: 'mp4' }),
+            },
+      );
       if (
         response.status >= 400 &&
         response.status < 500 &&
@@ -214,10 +309,11 @@ export async function generateRunway(job: Job, signal: AbortSignal) {
             status: 'failed',
             error: `Runway rejected the request (HTTP ${response.status}). Check credentials, credits and prompt.`,
           });
-          save('scene', {
-            ...get<Scene>('scene', scene.id),
-            status: 'planned',
-          });
+          if (scene && !image)
+            save('scene', {
+              ...get<Scene>('scene', scene.id),
+              status: 'planned',
+            });
         });
         throw new DomainError(generation!.error!);
       }
@@ -333,7 +429,9 @@ export async function generateRunway(job: Job, signal: AbortSignal) {
         actualUsd: cost,
         costBasis: task.cost
           ? 'Reported Runway credits × $0.01 (excludes tax)'
-          : 'Published Gen-4.5 rate × requested seconds (excludes tax)',
+          : image
+            ? 'Published Gen-4 Image 1080p rate (excludes tax)'
+            : 'Published Gen-4.5 rate × requested seconds (excludes tax)',
       });
     });
   }
@@ -343,44 +441,80 @@ export async function generateRunway(job: Job, signal: AbortSignal) {
       status: 'failed',
       error: `Runway task ${task.status.toLowerCase()}. Review the developer portal before creating another revision.`,
     });
-    save('scene', { ...get<Scene>('scene', scene.id), status: 'planned' });
+    if (scene && !image)
+      save('scene', { ...get<Scene>('scene', scene.id), status: 'planned' });
     throw new DomainError(`Runway task ${task.status.toLowerCase()}.`);
   }
   if (!task.output?.[0])
     throw new DomainError(
-      'Runway completed without a video URL. Retry retrieves the saved task.',
+      'Runway completed without a media URL. Retry retrieves the saved task.',
     );
   await prepareDir(p.id);
-  const key = `${p.id}/${scene.id}-r${scene.revision}-runway.mp4`;
-  await downloadVideo(task.output[0], key, signal);
+  const key = `${p.id}/${scene?.id ?? 'reference'}-${job.type}-r${targetRevision}-runway.${image ? 'jpg' : 'mp4'}`;
+  const downloadKey = image ? `${key}.source` : key;
+  await downloadMedia(task.output[0], downloadKey, signal);
+  if (image) {
+    await runProcess(
+      config.FFMPEG_PATH,
+      [
+        '-y',
+        '-i',
+        mediaPath(downloadKey),
+        '-frames:v',
+        '1',
+        '-q:v',
+        '2',
+        mediaPath(key),
+      ],
+      signal,
+    );
+    await rm(mediaPath(downloadKey), { force: true });
+  }
   const info = await probe(mediaPath(key), signal);
   const video = info.streams.find((s) => s.codec_type === 'video');
   if (
     !video?.width ||
     !video.height ||
-    Number(info.format.duration) < scene.durationSeconds - 0.15
+    (!image &&
+      (!Number.isFinite(Number(info.format.duration)) ||
+        Number(info.format.duration) < scene!.durationSeconds - 0.15))
   )
     throw new DomainError(
       'Runway clip is missing video or shorter than its scene. Paid task is saved.',
     );
-  const asset = await assetFile(p, 'video', key, {
-    sceneId: scene.id,
-    provider: 'runway',
-    prompt: scene.prompt,
-    costUsd: generation.actualUsd,
-    width: video.width,
-    height: video.height,
-    duration: Number(info.format.duration),
-    revision: scene.revision,
-    parameters: {
-      developmentPlaceholder: false,
-      model: RUNWAY_MODEL,
-      providerRequestId: generation.remoteTaskId,
-      requestedSeconds: duration,
-    },
-    license:
-      'AI-generated using Runway; subject to provider terms and user rights review.',
-  });
+  const asset =
+    list<Asset>('asset', p.id).find(
+      (a) => a.parameters.providerRequestId === generation!.remoteTaskId,
+    ) ??
+    (await assetFile(
+      p,
+      reference ? 'reference_image' : image ? 'storyboard_image' : 'video',
+      key,
+      {
+        sceneId: scene?.id,
+        provider: 'runway',
+        prompt,
+        costUsd: generation.actualUsd,
+        width: video.width,
+        height: video.height,
+        duration: image ? 0 : Number(info.format.duration),
+        mime: image ? 'image/jpeg' : 'video/mp4',
+        parentAssetId: parentId,
+        revision: targetRevision,
+        parameters: {
+          developmentPlaceholder: false,
+          model,
+          providerRequestId: generation.remoteTaskId,
+          requestedSeconds: duration,
+        },
+        license:
+          'AI-generated using Runway; subject to provider terms and user rights review.',
+      },
+    ));
+  const frames =
+    !image && p.productionApproach === 'image_to_video'
+      ? await reviewFrames(p, scene!, asset, signal)
+      : [];
   transaction(() => {
     save<Generation>('generation', {
       ...generation!,
@@ -388,11 +522,50 @@ export async function generateRunway(job: Job, signal: AbortSignal) {
       assetId: asset.id,
       latencyMs: Date.now() - Date.parse(generation!.createdAt),
     });
-    save('scene', {
-      ...get<Scene>('scene', scene.id),
-      status: 'generated',
-      provider: 'runway',
-      assetId: asset.id,
-    });
+    if (reference)
+      save('project', {
+        ...get<Project>('project', p.id),
+        referenceAssetId: asset.id,
+        referenceApproved: false,
+      });
+    else if (image)
+      save('scene', {
+        ...get<Scene>('scene', scene!.id),
+        storyboardAssetId: asset.id,
+        storyboardApproved: false,
+      });
+    else
+      save('scene', {
+        ...get<Scene>('scene', scene!.id),
+        status: 'generated',
+        provider: 'runway',
+        assetId: asset.id,
+        reviewFrameIds: frames.map((a) => a.id),
+      });
   });
+}
+
+async function imageDataUri(asset: Asset, signal: AbortSignal) {
+  const key = `${asset.path}.input.jpg`;
+  await runProcess(
+    config.FFMPEG_PATH,
+    [
+      '-y',
+      '-i',
+      mediaPath(asset.path),
+      '-vf',
+      'scale=1280:1280:force_original_aspect_ratio=decrease',
+      '-frames:v',
+      '1',
+      '-q:v',
+      '3',
+      mediaPath(key),
+    ],
+    signal,
+  );
+  const bytes = await readFile(mediaPath(key));
+  await rm(mediaPath(key), { force: true });
+  if (bytes.length > 3_000_000)
+    throw new DomainError('Reference image is too large to send.');
+  return `data:image/jpeg;base64,${Buffer.from(bytes).toString('base64')}`;
 }

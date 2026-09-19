@@ -133,6 +133,13 @@ function preflightRequest(p: Project, scenes: Scene[], s: Scene) {
         transition: x.transition,
         soundDesign: x.soundDesign,
         prompt: x.prompt,
+        ...(p.productionApproach === 'image_to_video'
+          ? {
+              imagePrompt: x.imagePrompt,
+              continuityNotes: p.continuityNotes,
+              referencePrompt: p.referencePrompt,
+            }
+          : {}),
         negativePrompt: x.negativePrompt,
       })),
       verifiedFacts: list<ResearchSource>('research', p.id)

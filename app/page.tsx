@@ -627,6 +627,7 @@ function NewProject({
     [mode, setMode] = useState('assisted'),
     [aspect, setAspect] = useState('9:16'),
     [quality, setQuality] = useState('draft'),
+    [productionApproach, setProductionApproach] = useState('image_to_video'),
     [videoProvider, setVideoProvider] = useState('development'),
     [decisionProvider, setDecisionProvider] = useState('development'),
     [creativeProvider, setCreativeProvider] = useState('development'),
@@ -664,6 +665,10 @@ function NewProject({
               aspect,
               quality,
               videoProvider,
+              productionApproach:
+                videoProvider === 'runway' && creativeProvider === 'openai'
+                  ? productionApproach
+                  : 'text_to_video',
               creativeProvider,
               decisionProvider,
               narrationProvider,
@@ -760,6 +765,24 @@ function NewProject({
               options={['development', 'openai']}
               onChange={setCreativeProvider}
             />
+            {videoProvider === 'runway' && creativeProvider === 'openai' && (
+              <Choice
+                label="Visual workflow"
+                value={productionApproach}
+                options={['image_to_video', 'text_to_video']}
+                onChange={setProductionApproach}
+              />
+            )}
+            {videoProvider === 'runway' &&
+              creativeProvider === 'openai' &&
+              productionApproach === 'image_to_video' && (
+                <p className="helper">
+                  Image-first: approve a shared reference, three starting
+                  images, then finished clips. These reviews apply in every
+                  mode. Initial images cost about $0.32 plus planning, video,
+                  audio and tax.
+                </p>
+              )}
             <Choice
               label="Decision evaluator"
               value={decisionProvider}
@@ -966,6 +989,25 @@ function ProjectView({
   if (needsPreflight)
     for (const state of ['assets_planned', 'generating', 'revision_required'])
       actions[state] = [['preflight', 'Run Jev preflight']];
+  if (p.productionApproach === 'image_to_video') {
+    for (const state of ['assets_planned', 'generating', 'revision_required']) {
+      if (!p.referencePrompt)
+        actions[state] = [['visual_plan', 'Plan consistent visuals']];
+      else if (!p.referenceAssetId)
+        actions[state] = [['reference_image', 'Generate reference · $0.08']];
+      else if (!p.referenceApproved) actions[state] = [];
+      else if (d.scenes.some((s) => !s.storyboardAssetId))
+        actions[state] = [
+          ['storyboard_image', 'Generate missing starting images'],
+        ];
+      else if (d.scenes.some((s) => !s.storyboardApproved)) actions[state] = [];
+      else if (
+        completed === d.scenes.length &&
+        d.scenes.some((s) => s.status !== 'approved')
+      )
+        actions[state] = [];
+    }
+  }
   return (
     <>
       <div className="project-heading">
@@ -1029,26 +1071,59 @@ function ProjectView({
             >
               {active ? <Clock size={16} /> : <Play size={16} />}{' '}
               {action === 'generate' && p.videoProvider === 'runway'
-                ? 'Generate film'
+                ? p.productionApproach === 'image_to_video'
+                  ? 'Animate approved images'
+                  : 'Generate film'
                 : caption}
             </button>
           ))}
         </div>
       </div>
-      {p.error && <div className="notice error">{p.error}</div>}
-      {p.videoProvider === 'runway' && p.state === 'assets_planned' && (
-        <div className="notice">
-          Review the three scenes, then choose Generate film to authorize Runway
-          clips, the selected narration, and assembly. Estimated video:{' '}
-          {money(
-            d.scenes.reduce(
-              (total, s) => total + Math.ceil(s.durationSeconds) * 0.12,
-              0,
-            ),
-          )}
-          , plus OpenAI and tax. Your project budget applies.
-        </div>
+      {p.productionApproach === 'image_to_video' && (
+        <VisualWorkflow detail={d} perform={perform} busy={busy || active} />
       )}
+      {p.productionApproach !== 'image_to_video' &&
+        p.videoProvider === 'runway' &&
+        p.creativeProvider === 'openai' &&
+        [
+          'assets_planned',
+          'generating',
+          'revision_required',
+          'approved',
+          'packaged',
+        ].includes(p.state) && (
+          <section className="panel">
+            <h3>Improve visual continuity</h3>
+            <p>
+              Switch this production to image-first. Existing media stays in
+              Assets; current clips and exports will be replaced by a new
+              revision after you approve the images.
+            </p>
+            <button
+              className="secondary"
+              disabled={busy || active}
+              onClick={() => perform(`/api/projects/${p.id}/image-first`)}
+            >
+              Start image-first revision
+            </button>
+          </section>
+        )}
+      {p.error && <div className="notice error">{p.error}</div>}
+      {p.videoProvider === 'runway' &&
+        p.productionApproach !== 'image_to_video' &&
+        p.state === 'assets_planned' && (
+          <div className="notice">
+            Review the three scenes, then choose Generate film to authorize
+            Runway clips, the selected narration, and assembly. Estimated video:{' '}
+            {money(
+              d.scenes.reduce(
+                (total, s) => total + Math.ceil(s.durationSeconds) * 0.12,
+                0,
+              ),
+            )}
+            , plus OpenAI and tax. Your project budget applies.
+          </div>
+        )}
       {p.decisionProvider === 'jev' && preflight.length > 0 && (
         <section className="panel">
           <h3>Jev creative preflight · storyboard text only</h3>
@@ -1175,7 +1250,7 @@ function ProjectView({
                             <span>
                               Shot {String(s.sceneNumber).padStart(2, '0')}
                             </span>
-                            <small>Awaiting test footage</small>
+                            <small>Awaiting footage</small>
                           </div>
                         )}
                         <span className="scene-time">
@@ -1211,7 +1286,10 @@ function ProjectView({
                                   perform(`/api/scenes/${s.id}/approve`)
                                 }
                               >
-                                <Check size={17} />
+                                <Check size={17} />{' '}
+                                {p.productionApproach === 'image_to_video'
+                                  ? 'Approve clip'
+                                  : ''}
                               </button>
                               <button
                                 className="icon-button"
@@ -1222,7 +1300,10 @@ function ProjectView({
                                   perform(`/api/scenes/${s.id}/regenerate`)
                                 }
                               >
-                                <RefreshCw size={16} />
+                                <RefreshCw size={16} />{' '}
+                                {p.productionApproach === 'image_to_video'
+                                  ? 'Replace clip'
+                                  : ''}
                               </button>
                             </>
                           )}
@@ -1572,6 +1653,212 @@ function ProjectView({
     </>
   );
 }
+function VisualWorkflow({
+  detail: d,
+  perform,
+  busy,
+}: {
+  detail: ProjectDetail;
+  perform: (path: string, input?: unknown) => void;
+  busy: boolean;
+}) {
+  const p = d.project;
+  if (!p.referencePrompt)
+    return (
+      <section className="panel">
+        <h3>Image-first production</h3>
+        <p>
+          Build the storyboard, then plan a consistent subject, wardrobe,
+          setting and lighting. Every shot will use the same approved visual
+          reference.
+        </p>
+      </section>
+    );
+  const still = (id: string, alt: string) => (
+    <Image
+      unoptimized
+      src={`/media/${id}`}
+      width={480}
+      height={480}
+      style={{
+        width: '100%',
+        height: 'auto',
+        maxHeight: 400,
+        objectFit: 'contain',
+      }}
+      alt={alt}
+    />
+  );
+  return (
+    <section className="panel">
+      <h3>Visual continuity · review before animation</h3>
+      <p className="helper">{p.continuityNotes}</p>
+      <p>
+        1. Approve the shared look. 2. Approve each starting image. 3. Animate,
+        then watch and approve each clip in the scene cards below. All modes
+        pause for these reviews.
+      </p>
+      <div className="panel">
+        <h3>
+          Shared reference{' '}
+          {p.referenceApproved ? '· Approved' : '· Needs review'}
+        </h3>
+        {p.referenceAssetId &&
+          still(
+            p.referenceAssetId,
+            'Shared subject, wardrobe and setting reference',
+          )}
+        <p className="helper">
+          Check identity, wardrobe, location, lighting and key props. Keep this
+          image consistent across the three shots.
+        </p>
+        {p.referenceAssetId && !p.referenceApproved && (
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={() =>
+              perform(`/api/projects/${p.id}/approve-reference`, {
+                assetId: p.referenceAssetId,
+              })
+            }
+          >
+            Approve shared look
+          </button>
+        )}
+        <VisualPrompt
+          key={`ref-${p.referenceRevision}`}
+          prompt={p.referencePrompt}
+          busy={busy}
+          label="Reference description"
+          onSave={(prompt) =>
+            perform(`/api/projects/${p.id}/revise-reference`, { prompt })
+          }
+        />
+      </div>
+      <div className="scene-grid">
+        {d.scenes.map((s) => (
+          <article className="panel" key={s.id}>
+            <h3>
+              Shot {s.sceneNumber}{' '}
+              {s.storyboardApproved
+                ? '· Starting image approved'
+                : '· Starting image review'}
+            </h3>
+            {s.storyboardAssetId &&
+              still(
+                s.storyboardAssetId,
+                `Shot ${s.sceneNumber} approved animation starting frame`,
+              )}
+            <p className="helper">Motion: {s.prompt}</p>
+            {s.storyboardAssetId && !s.storyboardApproved && (
+              <button
+                className="primary"
+                disabled={busy || !p.referenceApproved}
+                onClick={() =>
+                  perform(`/api/scenes/${s.id}/approve-still`, {
+                    assetId: s.storyboardAssetId,
+                  })
+                }
+              >
+                Approve starting image
+              </button>
+            )}
+            {s.imagePrompt && (
+              <VisualPrompt
+                key={`${s.id}-${s.storyboardRevision}`}
+                prompt={s.imagePrompt}
+                busy={busy}
+                label="Starting image description"
+                onSave={(prompt) =>
+                  perform(`/api/scenes/${s.id}/revise-still`, { prompt })
+                }
+              />
+            )}
+            {s.reviewFrameIds?.length ? (
+              <>
+                <h4>Finished clip · start / middle / end</h4>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {s.reviewFrameIds.map((id, i) => (
+                    <div key={id} style={{ flex: 1, minWidth: 0 }}>
+                      {still(
+                        id,
+                        `Shot ${s.sceneNumber} sampled frame ${i + 1}`,
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="helper">
+                  Check for identity drift, changing objects, anatomy and screen
+                  direction. Watch the full clip below; these samples cannot
+                  show every motion defect.
+                </p>
+                <strong>
+                  {s.status === 'approved'
+                    ? 'Clip approved'
+                    : 'Clip review required before assembly'}
+                </strong>
+              </>
+            ) : null}
+          </article>
+        ))}
+      </div>
+      <p className="helper">
+        Images: $0.08 each; shared reference plus three shots: $0.32 initially.
+        Video:{' '}
+        {money(
+          d.scenes.reduce((n, s) => n + Math.ceil(s.durationSeconds) * 0.12, 0),
+        )}
+        . Planning, evaluation, audio, retries and tax are additional; your
+        budget applies. Jev reviews text, not these images or clips.
+      </p>
+    </section>
+  );
+}
+function VisualPrompt({
+  prompt,
+  busy,
+  label: caption,
+  onSave,
+}: {
+  prompt: string;
+  busy: boolean;
+  label: string;
+  onSave: (prompt: string) => void;
+}) {
+  const [value, setValue] = useState(prompt);
+  return (
+    <details>
+      <summary>Edit or replace image</summary>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave(value);
+        }}
+      >
+        <label className="field">
+          {caption}
+          <textarea
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            minLength={20}
+            maxLength={caption.startsWith('Reference') ? 900 : 800}
+            required
+            rows={4}
+          />
+        </label>
+        <p className="helper">
+          Save to discard the current selection and request a replacement using
+          the generation button. Replacing the shared reference resets all
+          shots. Previous files remain in Assets.
+        </p>
+        <button className="secondary" disabled={busy}>
+          Save image revision
+        </button>
+      </form>
+    </details>
+  );
+}
+
 function SceneEditor({
   scene: s,
   close,
@@ -1620,7 +1907,7 @@ function SceneEditor({
                 rows={8}
                 required
                 minLength={10}
-                maxLength={8000}
+                maxLength={s.provider === 'runway' ? 1000 : 8000}
                 defaultValue={s.prompt}
               />
             </label>
@@ -1634,8 +1921,9 @@ function SceneEditor({
               />
             </label>
             <p className="helper">
-              Provider: Development studio · Reference uploads and real
-              generation adapters are not connected.
+              Provider: {s.provider}. Use one simple action and one camera
+              setup. For image-first scenes, this prompt controls motion from
+              the approved starting image.
             </p>
             <div className="actions">
               <button className="primary">Save revision</button>
@@ -1786,13 +2074,13 @@ function AssetGrid({ assets }: { assets: Asset[] }) {
                 label="Development audio description"
               />
             </video>
-          ) : a.type === 'thumbnail' ? (
+          ) : a.mime.startsWith('image/') ? (
             <Image
               unoptimized
               width={360}
               height={640}
               src={`/media/${a.id}`}
-              alt="Development thumbnail"
+              alt={`${label(a.type)} revision ${a.revision}`}
             />
           ) : a.type === 'narration' || a.type === 'music' ? (
             <audio

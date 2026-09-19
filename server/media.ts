@@ -244,3 +244,49 @@ export async function writePackage(key: string, value: unknown) {
   await writeFile(mediaPath(key), JSON.stringify(value, null, 2));
   return readFile(mediaPath(key));
 }
+
+export async function reviewFrames(
+  p: Project,
+  scene: Scene,
+  video: Asset,
+  signal: AbortSignal,
+) {
+  const frames: Asset[] = [];
+  for (const [index, seconds] of [
+    0,
+    scene.durationSeconds / 2,
+    Math.max(0, scene.durationSeconds - 0.15),
+  ].entries()) {
+    const key = `${p.id}/${video.id}-review-${index}.jpg`;
+    await runProcess(
+      config.FFMPEG_PATH,
+      [
+        '-y',
+        '-ss',
+        String(seconds),
+        '-i',
+        mediaPath(video.path),
+        '-frames:v',
+        '1',
+        '-vf',
+        'scale=480:-2',
+        mediaPath(key),
+      ],
+      signal,
+    );
+    frames.push(
+      await assetFile(p, 'review_frame', key, {
+        sceneId: scene.id,
+        parentAssetId: video.id,
+        revision: scene.revision,
+        mime: 'image/jpeg',
+        provider: 'ffmpeg',
+        parameters: {
+          sampleTimeSeconds: seconds,
+          developmentPlaceholder: false,
+        },
+      }),
+    );
+  }
+  return frames;
+}

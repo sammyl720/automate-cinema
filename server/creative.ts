@@ -172,3 +172,21 @@ export function scenesFor(p: Project, c: Concept): Scene[] {
   trace(p.id, 'script', { concept: c.id, duration: p.duration }, out);
   return out;
 }
+
+// Keep complete instructions. Never silently cut a camera or continuity sentence.
+export function completeVideoPrompt(
+  scene: Scene,
+  bible: Project['creativeBible'],
+) {
+  const essential = `${scene.visualDescription.trim()} Camera: ${scene.cameraDirection.trim()}`;
+  if (essential.length > 1000) return essential; // Provider gate reports an actionable length error.
+  let prompt = essential;
+  for (const sentence of [
+    `Continuity: ${[...bible.characters, ...bible.visualRules].join('; ')}.`,
+    `Lighting: ${scene.lighting}.`,
+    `Palette: ${bible.palette.join(', ')}.`,
+    `Mood: ${scene.mood}.`,
+  ])
+    if (prompt.length + sentence.length + 1 <= 1000) prompt += ` ${sentence}`;
+  return prompt;
+}

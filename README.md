@@ -10,6 +10,8 @@ See [Enable OpenAI creative generation and narration](docs/OPENAI_SETUP.md) for 
 
 See [Brief to an AI-generated film](docs/MVP_QUICKSTART.md) for the two API keys, the AI MVP preset, costs, recovery behavior and the first film workflow.
 
+See [Improve video continuity](docs/VIDEO_QUALITY.md) for shared visual references, approved starting images, Runway image-to-video and finished-clip review. Existing Runway/OpenAI productions can opt into an image-first revision.
+
 ## Detailed setup and usage guide
 
 See [Setup, credentials and daily use](docs/SETUP_AND_USAGE.md) for password setup, login, provider-credential availability, a complete dashboard walkthrough, configuration, backups and troubleshooting.

@@ -45,3 +45,11 @@ The first backup of the recovered studio was created and independently verified:
 ## Runway MVP
 
 Runway Gen-4.5 text-to-video now supports three-scene 6–30 second portrait/landscape films, with saved task IDs, deferred polling, budget reservations, reported-credit settlement, bounded local media downloads and FFmpeg assembly. The AI MVP preset selects Runway and OpenAI. Generate film resumes narration, rendering and packaging after script review. See [MVP setup](docs/MVP_QUICKSTART.md). No live paid generation has been performed.
+
+## Image-first continuity workflow
+
+New Runway/OpenAI projects default to shared-reference image generation, approved storyboard stills and Gen-4.5 image-to-video. Existing productions can explicitly start an image-first revision. Visual planning uses one simple action and camera setup per shot with shared identity, wardrobe, setting, lighting and direction. Runway prompts no longer use arbitrary character slicing.
+
+Human approval gates cover reference imagery, starting images and finished clips in every mode. FFmpeg extracts start/middle/end frames for comparison alongside full playback. Single-shot and shared-reference revisions invalidate dependent selections; old media and paid-task records remain available. Budget accounting, durable polling and recovery apply to images as well as clips.
+
+Validation: 67 tests, TypeScript, lint and production build pass. Paid APIs are mocked; FFmpeg processes real fixtures. No live paid generation or artistic-quality claim is part of this verification. See [Video quality guide](docs/VIDEO_QUALITY.md).

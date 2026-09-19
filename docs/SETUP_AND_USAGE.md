@@ -1,3 +1,5 @@
+> For the image-first Runway workflow, visual approvals and existing-project upgrades, follow [Video quality and continuity](VIDEO_QUALITY.md).
+
 # Frame / Work: setup, credentials and daily use
 
 This guide describes the application that is implemented in this repository. Start with the local development workflow; no paid provider account is needed for demo projects. For real creative text and narration, see [OpenAI setup](OPENAI_SETUP.md).
