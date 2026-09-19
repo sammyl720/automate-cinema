@@ -17,6 +17,7 @@ import {
   type PromptExecution,
   type Generation,
   type ApiCall,
+  type DecisionEvaluation,
 } from '../shared/domain';
 import {
   DomainError,
@@ -27,9 +28,19 @@ import {
 import { getProviderRegistry } from './providers';
 import { requireRunway } from './runway';
 import { requireElevenLabs, requireOpenAI } from './openai-client';
+import { requireTypeSafe } from './typesafe-client';
+import {
+  assertPreflight,
+  conceptDecision,
+  preflightDecisions,
+  preflightJobKey,
+  conceptJobKey,
+} from './decision-providers';
+import { judgeDecision } from './decision-policy';
 import { constructPrompt } from './creative';
 export function createProject(input: unknown): Project {
   const data = projectInput.parse(input);
+  if (data.decisionProvider === 'jev') requireTypeSafe();
   if (data.videoProvider === 'runway') {
     requireRunway();
     if (data.aspect === '1:1' || data.duration > 30)
@@ -84,6 +95,16 @@ export function transition(p: Project, state: State) {
   });
 }
 export function detail(id: string): ProjectDetail {
+  const p = get<Project>('project', id);
+  const current =
+    p.decisionProvider === 'jev'
+      ? new Set([
+          ...preflightDecisions(p)
+            .filter(Boolean)
+            .map((d) => d!.id),
+          ...list<Concept>('concept', id).map((c) => conceptDecision(p, c)?.id),
+        ])
+      : new Set<string>();
   return {
     project: get<Project>('project', id),
     concepts: list<Concept>('concept', id),
@@ -100,6 +121,11 @@ export function detail(id: string): ProjectDetail {
     prompts: list<PromptExecution>('prompt', id),
     generations: list<Generation>('generation', id),
     apiCalls: list<ApiCall>('apiCall', id),
+    decisions: list<DecisionEvaluation>('decision', id).map((d) => ({
+      ...d,
+      ...judgeDecision(d.stage, d.answers),
+      current: current.has(d.id),
+    })),
   };
 }
 export function assertResearch(p: Project) {
@@ -119,6 +145,14 @@ export function selectConcept(projectId: string, conceptId: string) {
   if (c.projectId !== projectId)
     throw new DomainError('Concept belongs to a different project', 404);
   assertResearch(p);
+  if (isBusy(projectId))
+    throw new DomainError(
+      'Wait for concept evaluation to finish before selecting.',
+    );
+  if (p.decisionProvider === 'jev' && !conceptDecision(p, c))
+    throw new DomainError(
+      'Jev evaluation is missing for this concept. Retry the concept job; generator scores cannot substitute.',
+    );
   for (const existing of list<Concept>('concept', projectId))
     save('concept', { ...existing, selected: existing.id === conceptId });
   const updated = transition(
@@ -137,6 +171,7 @@ export function requestStage(projectId: string, type: JobType) {
     concepts: ['idea', 'researching'],
     script: ['concept_selected'],
     storyboard: ['script_drafting'],
+    preflight: ['assets_planned', 'generating', 'revision_required'],
     generate: ['assets_planned', 'revision_required', 'generating'],
     narration: ['generating'],
     music: ['generating'],
@@ -147,11 +182,20 @@ export function requestStage(projectId: string, type: JobType) {
   if (!allowed[type].includes(p.state))
     throw new DomainError(`${type} cannot run while project is ${p.state}`);
   if (['concepts', 'script'].includes(type)) assertResearch(p);
-  if (type === 'concepts' && d.concepts.length)
+  if (type === 'concepts' && d.concepts.length && p.decisionProvider !== 'jev')
     throw new DomainError('Concepts already exist; select a concept');
   if (type === 'script' && !p.selectedConceptId)
     throw new DomainError('Select a concept first');
+  if (
+    type === 'preflight' &&
+    (p.decisionProvider !== 'jev' || !d.scenes.length)
+  )
+    throw new DomainError(
+      'Jev preflight requires a storyboard and Jev decision provider.',
+    );
   if (type === 'generate') {
+    assertResearch(p);
+    assertPreflight(p);
     if (!d.scenes.length) throw new DomainError('Create a storyboard first');
     const pending = d.scenes.filter((s) => !s.assetId);
     if (d.scenes.some((s) => s.status === 'rejected'))
@@ -205,7 +249,15 @@ export function requestStage(projectId: string, type: JobType) {
     !d.assets.some((a) => a.type === 'music' && a.revision === p.revision)
   )
     throw new DomainError('Generate the music track first');
-  enqueue(projectId, type, `${projectId}:${type}:r${p.revision}`);
+  enqueue(
+    projectId,
+    type,
+    type === 'preflight'
+      ? preflightJobKey(p)
+      : type === 'concepts' && p.decisionProvider === 'jev'
+        ? conceptJobKey(p)
+        : `${projectId}:${type}:r${p.revision}`,
+  );
 }
 export function startAutomation(projectId: string) {
   let p = get<Project>('project', projectId);
@@ -247,11 +299,28 @@ export function advance(id: string) {
         save('project', { ...p, automationRunning: false });
         return;
       }
+      if (
+        p.decisionProvider === 'jev' &&
+        d.concepts.some((c) => !conceptDecision(p, c))
+      )
+        throw new DomainError(
+          'Jev concept evaluation is incomplete. Retry the concept job before automatic selection.',
+        );
       const best = [...d.concepts].sort((a, b) => b.score - a.score)[0];
       if (best.score < 80)
         throw new DomainError(
           'Concept score is below the automatic selection threshold',
         );
+      if (p.decisionProvider === 'jev') {
+        const result = judgeDecision(
+          'concept',
+          conceptDecision(p, best)!.answers,
+        );
+        if (!result.passed)
+          throw new DomainError(
+            `Jev requires human concept selection: ${result.reasons.join('; ')}`,
+          );
+      }
       p = selectConcept(id, best.id);
     }
     if (p.mode === 'manual') {
@@ -261,6 +330,13 @@ export function advance(id: string) {
     if (p.state === 'concept_selected') requestStage(id, 'script');
     else if (p.state === 'script_drafting') requestStage(id, 'storyboard');
     else if (p.state === 'assets_planned') {
+      if (p.decisionProvider === 'jev') {
+        if (preflightDecisions(p).some((d) => !d)) {
+          requestStage(id, 'preflight');
+          return;
+        }
+        assertPreflight(p);
+      }
       if (p.mode === 'assisted') {
         save('project', { ...p, automationRunning: false });
         event(id, 'approval.required', { stage: 'generation' });
@@ -387,12 +463,13 @@ export function regenerate(id: string) {
     status: 'planned',
     assetId: undefined,
   } satisfies Scene);
-  enqueue(
-    s.projectId,
-    'generate',
-    `${s.projectId}:scene:${id}:r${updated.revision}`,
-    id,
-  );
+  if (p.decisionProvider !== 'jev')
+    enqueue(
+      s.projectId,
+      'generate',
+      `${s.projectId}:scene:${id}:r${updated.revision}`,
+      id,
+    );
   event(s.projectId, 'scene.regeneration_requested', { sceneId: id });
 }
 export function reviewScene(id: string, approved: boolean) {
@@ -421,4 +498,35 @@ export function updateBible(id: string, input: unknown) {
 }
 export function refreshPrompt(s: Scene, p: Project) {
   return constructPrompt(s, p.creativeBible);
+}
+
+export function approvePreflight(id: string, input: unknown) {
+  const { note } = z
+    .object({ note: z.string().trim().min(10).max(1000) })
+    .parse(input);
+  const p = get<Project>('project', id);
+  if (isBusy(id))
+    throw new DomainError('Wait for active work before reviewing preflight.');
+  if (
+    p.decisionProvider !== 'jev' ||
+    !['assets_planned', 'generating', 'revision_required'].includes(p.state)
+  )
+    throw new DomainError('No reviewable Jev preflight at this stage.');
+  const decisions = preflightDecisions(p);
+  if (!decisions.length || decisions.some((d) => !d))
+    throw new DomainError(
+      'Complete the current Jev preflight before human approval.',
+    );
+  transaction(() => {
+    for (const d of decisions)
+      save('decision', {
+        ...d!,
+        humanReview: { approvedAt: new Date().toISOString(), note },
+      });
+    event(id, 'preflight.human_approved', {
+      decisionIds: decisions.map((d) => d!.id),
+      note,
+    });
+    save('project', { ...p, error: undefined });
+  });
 }

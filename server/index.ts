@@ -20,6 +20,7 @@ import {
   regenerate,
   reviewScene,
   updateBible,
+  approvePreflight,
 } from './service';
 import {
   jobTypes,
@@ -153,6 +154,8 @@ export function createApi() {
           if (action === 'select') {
             const parsed = z.object({ conceptId: z.uuid() }).parse(input);
             selectConcept(id, parsed.conceptId);
+          } else if (action === 'approve-preflight') {
+            approvePreflight(id, input);
           } else if (action === 'run') {
             startAutomation(id);
           } else if (action === 'pause') {

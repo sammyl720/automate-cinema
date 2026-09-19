@@ -397,3 +397,7 @@ You will have exercised the entire implemented production flow without any exter
 ## Improved audio
 
 See [ElevenLabs narration and music setup](AUDIO_SETUP.md) for credentials, voices, soundtrack prompts, mixing controls, and cost estimates.
+
+## Independent creative evaluation
+
+[Set up TypeSafe Jev](JEV_SETUP.md) to add concept scoring and storyboard preflight, with explicit human review for uncertain judgments.

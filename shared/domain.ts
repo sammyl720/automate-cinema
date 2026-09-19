@@ -28,6 +28,7 @@ export const projectInput = z.object({
   mode: z.enum(['manual', 'assisted', 'autonomous']).default('assisted'),
   quality: z.enum(['draft', 'final']).default('draft'),
   videoProvider: z.enum(['development', 'runway']).default('development'),
+  decisionProvider: z.enum(['development', 'jev']).default('development'),
   creativeProvider: z.enum(['development', 'openai']).default('development'),
   narrationProvider: z
     .enum(['development', 'openai', 'elevenlabs'])
@@ -103,6 +104,8 @@ export interface Concept extends RecordBase {
   criteria: Record<string, number>;
   explanation: string;
   selected: boolean;
+  decisionId?: string;
+  generatorCriteria?: Record<string, number>;
 }
 export const sceneOutput = z.object({
   sceneNumber: z.number().int().positive(),
@@ -186,6 +189,7 @@ export const jobTypes = [
   'concepts',
   'script',
   'storyboard',
+  'preflight',
   'generate',
   'narration',
   'music',
@@ -307,6 +311,7 @@ export interface ProjectDetail {
   prompts: PromptExecution[];
   generations: Generation[];
   apiCalls: ApiCall[];
+  decisions: DecisionEvaluation[];
 }
 
 export interface ApiCall extends RecordBase {
@@ -315,7 +320,7 @@ export interface ApiCall extends RecordBase {
   sceneId?: string;
   key: string;
   stage: string;
-  provider: 'openai' | 'elevenlabs';
+  provider: 'openai' | 'elevenlabs' | 'typesafe';
   model: string;
   status: 'reserved' | 'completed' | 'failed' | 'uncertain';
   attempt: number;
@@ -328,4 +333,37 @@ export interface ApiCall extends RecordBase {
   latencyMs?: number;
   usage?: Record<string, unknown>;
   error?: string;
+}
+
+export interface ScoreJudgment {
+  type: 'score';
+  score: number;
+  confidence: number;
+  probabilities: Record<string, number>;
+  legend: Record<string, unknown>;
+}
+export interface NoulJudgment {
+  type: 'noul';
+  noul: number;
+}
+export interface DecisionEvaluation extends RecordBase {
+  projectId: string;
+  jobId: string;
+  conceptId?: string;
+  sceneId?: string;
+  stage: 'concept' | 'creative_preflight';
+  provider: 'jev';
+  model: string;
+  version: string;
+  inputKey: string;
+  current?: boolean;
+  revision: number;
+  callId: string;
+  answers: Record<string, ScoreJudgment | NoulJudgment>;
+  normalizedScores: Record<string, number>;
+  confidence: number;
+  passed: boolean;
+  reasons: string[];
+  thresholds: Record<string, number>;
+  humanReview?: { approvedAt: string; note: string };
 }

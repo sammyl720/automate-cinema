@@ -1,3 +1,4 @@
+import { assertPreflight } from './decision-providers';
 import { z } from 'zod';
 import { open, rename, rm } from 'node:fs/promises';
 import { config } from './config';
@@ -150,6 +151,8 @@ export async function generateRunway(job: Job, signal: AbortSignal) {
     (g) => g.jobId === job.id,
   );
   if (!generation) {
+    // Gate new purchases without preventing recovery of a task already submitted.
+    assertPreflight(p);
     signal.throwIfAborted();
     generation = transaction(() => {
       const fresh = get<Project>('project', p.id);

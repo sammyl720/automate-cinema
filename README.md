@@ -82,7 +82,7 @@ Tests use a temporary database and media directory, mock external providers, and
 
 ## Configuration
 
-See `.env.example` for defaults. `dev:studio` reads `.env`; individual commands can receive variables from their shell. OpenAI is `configured` when a server key exists; account access is checked on the first request. Other external vendors remain `unsupported`.
+See `.env.example` for defaults. `dev:studio` reads `.env`; individual commands can receive variables from their shell. OpenAI is `configured` when a server key exists; account access is checked on the first request. Runway, ElevenLabs and TypeSafe Jev are also opt-in integrations; configured means a key is present, not a successful live account check.
 
 | Variable                      | Meaning                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------- |
@@ -116,3 +116,7 @@ GitHub Actions runs type checking, lint, tests (including real FFmpeg rendering 
 ### Narration and music options
 
 Select ElevenLabs narration and optional Eleven Music when creating a production. See [audio setup](docs/AUDIO_SETUP.md) for credentials and usage.
+
+### Independent evaluation with Jev
+
+Choose **Decision evaluator → jev** for independent concept judgments, confidence-aware automatic selection, and a storyboard preflight before video generation. See [Jev setup](docs/JEV_SETUP.md) for credentials, thresholds, costs and recovery. Development remains the default.

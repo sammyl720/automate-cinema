@@ -103,6 +103,20 @@ export const providerRegistry: ProviderInfo[] = [
     costPerSecond: 0,
     model: 'eleven_multilingual_v2 / music_v2_5',
   },
+  {
+    id: 'jev',
+    name: 'TypeSafe Jev · independent evaluation',
+    status: 'authentication_required',
+    demo: false,
+    capabilities: {
+      ...caps,
+      textToVideo: false,
+      audioGeneration: false,
+      maximumDurationSeconds: 0,
+    },
+    costPerSecond: 0,
+    model: config.TYPESAFE_MODEL,
+  },
   ...['Higgsfield'].map((name) => ({
     id: name.toLowerCase(),
     name,
@@ -225,27 +239,34 @@ export const videoProviders: Record<string, VideoGenerationProvider> = {
 
 export function getProviderRegistry(): ProviderInfo[] {
   return providerRegistry.map((p) =>
-    p.id === 'openai'
+    p.id === 'jev'
       ? {
           ...p,
-          status: config.OPENAI_API_KEY
+          status: config.TYPESAFE_API_KEY
             ? 'configured'
             : 'authentication_required',
         }
-      : p.id === 'runway'
+      : p.id === 'openai'
         ? {
             ...p,
-            status: config.RUNWAY_API_KEY
+            status: config.OPENAI_API_KEY
               ? 'configured'
               : 'authentication_required',
           }
-        : p.id === 'elevenlabs'
+        : p.id === 'runway'
           ? {
               ...p,
-              status: config.ELEVENLABS_API_KEY
+              status: config.RUNWAY_API_KEY
                 ? 'configured'
                 : 'authentication_required',
             }
-          : p,
+          : p.id === 'elevenlabs'
+            ? {
+                ...p,
+                status: config.ELEVENLABS_API_KEY
+                  ? 'configured'
+                  : 'authentication_required',
+              }
+            : p,
   );
 }

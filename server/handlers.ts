@@ -13,6 +13,7 @@ import type {
 import { trace } from './creative';
 import { creativeProvider, persistStoryboard } from './creative-providers';
 import { generateRunway } from './runway';
+import { decisionProvider, assertPreflight } from './decision-providers';
 import { generateMusic } from './music';
 import { spokenNarration } from './narration';
 import { transition } from './service';
@@ -54,6 +55,22 @@ export async function handle(job: Job, signal: AbortSignal) {
       });
     }
   }
+  if (job.type === 'concepts')
+    await decisionProvider(p).evaluateConcepts(
+      p,
+      list<Concept>('concept', p.id),
+      job,
+      signal,
+    );
+  if (job.type === 'preflight')
+    await decisionProvider(p).evaluateCreativePreflight(
+      p,
+      list<Scene>('scene', p.id),
+      job,
+      signal,
+    );
+  if (job.type === 'generate' && p.videoProvider !== 'runway')
+    assertPreflight(p);
   if (job.type === 'script') {
     if (!p.selectedConceptId) throw new DomainError('No selected concept');
     p = transition(p, 'script_drafting');

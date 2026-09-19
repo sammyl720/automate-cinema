@@ -2,6 +2,24 @@ import { z } from 'zod';
 import { resolve } from 'node:path';
 const parsed = z
   .object({
+    TYPESAFE_API_KEY: z.string().default(''),
+    TYPESAFE_MODEL: z.string().trim().min(1).max(100).default('jev-latest'),
+    TYPESAFE_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(120000)
+      .default(30000),
+    TYPESAFE_INPUT_USD_PER_MILLION: z.coerce.number().positive().default(0.042),
+    JEV_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.7),
+    JEV_MIN_STRONG_PROBABILITY: z.coerce.number().min(0).max(1).default(0.75),
+    JEV_PREFLIGHT_MIN_SCORE: z.coerce.number().min(0).max(100).default(70),
+    JEV_CONTINUITY_MIN_PROBABILITY: z.coerce
+      .number()
+      .min(0)
+      .max(1)
+      .default(0.7),
+    JEV_AMBIGUITY_MAX_PROBABILITY: z.coerce.number().min(0).max(1).default(0.3),
     OPENAI_API_KEY: z.string().default(''),
     ELEVENLABS_API_KEY: z.string().default(''),
     ELEVENLABS_TTS_USD_PER_1000: z.coerce.number().positive().default(0.1),

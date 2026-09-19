@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { config } from './config';
-import { base, event, get, list, save, transaction } from './db';
+import { base, list, save } from './db';
+import { paidRequest } from './paid-call';
 import { DomainError } from './policy';
-import type { ApiCall, Job, Project } from '../shared/domain';
+import type { ApiCall, Job } from '../shared/domain';
 
 // Standard synchronous rates, verified 2026-09-08. Never treated as a billing invoice.
 export const rates = {
@@ -120,173 +121,33 @@ export async function paidCall<T>(
     !/^[a-zA-Z0-9_-]{1,100}$/.test(options.voiceId ?? '')
   )
     throw new DomainError('Invalid ElevenLabs voice ID');
-  options.signal.throwIfAborted();
-  const key = `${options.job.id}:${options.stage}:${options.sceneId ?? 'project'}`;
-  const previous = list<ApiCall>('apiCall', options.job.projectId)
-    .filter((c) => c.key === key)
-    .at(-1);
-  if (previous?.status === 'completed')
-    return { result: previous.result as T, call: previous };
-  if (previous && ['reserved', 'uncertain'].includes(previous.status))
-    throw new DomainError(
-      'A previous paid request has an uncertain outcome. Budget remains reserved; reconcile it in provider billing before a new request.',
-    );
-  if (previous && previous.attempt >= 3)
-    throw new DomainError('Paid request attempt limit reached');
-  let call: ApiCall;
-  transaction(() => {
-    const p = get<Project>('project', options.job.projectId);
-    if (p.spentUsd + p.reservedUsd + options.estimatedUsd > p.budget.maximumUsd)
-      throw new DomainError(
-        'Project budget cannot cover this AI request estimate',
-      );
-    call = save('apiCall', {
-      ...base(),
-      projectId: p.id,
-      jobId: options.job.id,
-      sceneId: options.sceneId,
-      key,
-      stage: options.stage,
-      provider: options.provider ?? 'openai',
-      model: options.model,
-      status: 'reserved',
-      attempt: (previous?.attempt ?? 0) + 1,
-      estimatedUsd: options.estimatedUsd,
-      calculatedUsd: 0,
-      pricingBasis:
-        options.pricingBasis ??
-        'Standard rates 2026-09-08; calculated, not provider invoice',
-      request: options.body,
-    });
-    save('project', {
-      ...p,
-      reservedUsd: p.reservedUsd + options.estimatedUsd,
-    });
-    event(p.id, 'provider.request_reserved', {
-      callId: call.id,
-      stage: options.stage,
-      estimatedUsd: options.estimatedUsd,
-    });
-  });
-  const settle = (
-    status: ApiCall['status'],
-    patch: Partial<ApiCall>,
-    release: boolean,
-  ) =>
-    transaction(() => {
-      const p = get<Project>('project', options.job.projectId);
-      call = save('apiCall', { ...call!, ...patch, status });
-      save('project', {
-        ...p,
-        reservedUsd: release
-          ? Math.max(0, p.reservedUsd - options.estimatedUsd)
-          : p.reservedUsd,
-        spentUsd: p.spentUsd + (patch.calculatedUsd ?? 0),
-      });
-      event(p.id, `provider.request_${status}`, {
-        callId: call.id,
-        stage: options.stage,
-        calculatedUsd: patch.calculatedUsd ?? null,
-      });
-    });
-  const started = Date.now();
-  let response: Response;
-  try {
-    response = await (eleven ? elevenLabsTransport : openaiTransport).fetch(
-      eleven
-        ? `https://api.elevenlabs.io/v1/${options.endpoint === 'eleven-music' ? 'music' : `text-to-speech/${options.voiceId}`}?output_format=mp3_44100_128`
-        : `https://api.openai.com/v1/${options.endpoint}`,
-      {
-        method: 'POST',
-        headers: {
-          ...(eleven
-            ? { 'xi-api-key': config.ELEVENLABS_API_KEY }
-            : { Authorization: `Bearer ${config.OPENAI_API_KEY}` }),
-          'Content-Type': 'application/json',
-          'X-Client-Request-Id': call!.id,
-        },
-        body: JSON.stringify(options.body),
-        signal: AbortSignal.any([
-          options.signal,
-          AbortSignal.timeout(eleven ? 150000 : config.OPENAI_TIMEOUT_MS),
-        ]),
-      },
-    );
-  } catch {
-    settle(
-      'uncertain',
-      { error: 'Connection interrupted; provider billing outcome unknown.' },
-      false,
-    );
-    throw new DomainError(
-      `${providerName} request interrupted. Its budget reservation is retained; automatic paid retry is blocked.`,
-    );
-  }
-  const requestId = response.headers.get('x-request-id') ?? undefined;
-  if (!response.ok) {
-    await response.body?.cancel();
-    // Server errors can follow accepted work; do not assume it is safe to resubmit.
-    if (response.status >= 500) {
-      settle(
-        'uncertain',
+  return paidRequest({
+    ...options,
+    provider: options.provider ?? 'openai',
+    providerName,
+    send: async (callId) => {
+      return await (eleven ? elevenLabsTransport : openaiTransport).fetch(
+        eleven
+          ? `https://api.elevenlabs.io/v1/${options.endpoint === 'eleven-music' ? 'music' : `text-to-speech/${options.voiceId}`}?output_format=mp3_44100_128`
+          : `https://api.openai.com/v1/${options.endpoint}`,
         {
-          requestId,
-          error: `${providerName} HTTP ${response.status}; outcome unknown`,
+          method: 'POST',
+          headers: {
+            ...(eleven
+              ? { 'xi-api-key': config.ELEVENLABS_API_KEY }
+              : { Authorization: `Bearer ${config.OPENAI_API_KEY}` }),
+            'Content-Type': 'application/json',
+            'X-Client-Request-Id': callId,
+          },
+          body: JSON.stringify(options.body),
+          signal: AbortSignal.any([
+            options.signal,
+            AbortSignal.timeout(eleven ? 150000 : config.OPENAI_TIMEOUT_MS),
+          ]),
         },
-        false,
       );
-      throw new DomainError(
-        `${providerName} server error; inspect the recorded request ID before retrying paid work.`,
-      );
-    }
-    settle(
-      'failed',
-      {
-        requestId,
-        error: `${providerName} HTTP ${response.status}`,
-        latencyMs: Date.now() - started,
-      },
-      true,
-    );
-    if (response.status === 429)
-      throw new Error(
-        `${providerName} rate limit reached; bounded retry scheduled`,
-      );
-    throw new DomainError(
-      `${providerName} rejected the request (HTTP ${response.status}). Check key, billing, permissions and model access.`,
-      422,
-    );
-  }
-  try {
-    const decoded = await options.decode(response);
-    if (!Number.isFinite(decoded.calculatedUsd) || decoded.calculatedUsd < 0)
-      throw new Error('Invalid cost');
-    settle(
-      'completed',
-      {
-        requestId,
-        result: decoded.result,
-        calculatedUsd: decoded.calculatedUsd,
-        usage: decoded.usage,
-        latencyMs: Date.now() - started,
-      },
-      true,
-    );
-    return { result: decoded.result, call: call! };
-  } catch {
-    settle(
-      'uncertain',
-      {
-        requestId,
-        error:
-          'Response could not be decoded or persisted; billing outcome requires review.',
-      },
-      false,
-    );
-    throw new DomainError(
-      `${providerName} returned an unreadable response. Paid retry blocked; inspect the request record.`,
-    );
-  }
+    },
+  });
 }
 export async function structuredCall<T>(
   job: Job,

@@ -50,6 +50,7 @@ import type {
   Scene,
   Asset,
   Job,
+  DecisionEvaluation,
 } from '@/shared/domain';
 import { projectInput } from '@/shared/domain';
 const initial: Snapshot = {
@@ -559,9 +560,11 @@ export default function Home() {
                               ? p.status === 'configured'
                                 ? 'Key configured. Choose OpenAI when creating a project for paid concepts, scripts, storyboards and speech. Account access is checked on first request.'
                                 : 'Set OPENAI_API_KEY in the server .env and restart. Choose your video provider separately; keys stay on the server.'
-                              : p.id === 'elevenlabs'
-                                ? 'Set ELEVENLABS_API_KEY in the server .env and restart. Select ElevenLabs narration and/or music when creating a production. Configured means a key is present; account access is checked on first request.'
-                                : 'Adapter is not implemented. No requests or charges will be made.'}
+                              : p.id === 'jev'
+                                ? 'Set TYPESAFE_API_KEY in the server .env and restart. Choose Jev as the decision evaluator for independent concept scoring and storyboard preflight. Configured means a key is present; account access is checked on first use.'
+                                : p.id === 'elevenlabs'
+                                  ? 'Set ELEVENLABS_API_KEY in the server .env and restart. Select ElevenLabs narration and/or music when creating a production. Configured means a key is present; account access is checked on first request.'
+                                  : 'Adapter is not implemented. No requests or charges will be made.'}
                       </p>
                       <div className="tags">
                         <span>{p.model}</span>
@@ -625,6 +628,7 @@ function NewProject({
     [aspect, setAspect] = useState('9:16'),
     [quality, setQuality] = useState('draft'),
     [videoProvider, setVideoProvider] = useState('development'),
+    [decisionProvider, setDecisionProvider] = useState('development'),
     [creativeProvider, setCreativeProvider] = useState('development'),
     [narrationProvider, setNarrationProvider] = useState('development'),
     [musicProvider, setMusicProvider] = useState('none'),
@@ -661,6 +665,7 @@ function NewProject({
               quality,
               videoProvider,
               creativeProvider,
+              decisionProvider,
               narrationProvider,
               musicProvider,
               elevenVoiceId: f.get('elevenVoiceId') || undefined,
@@ -756,7 +761,21 @@ function NewProject({
               onChange={setCreativeProvider}
             />
             <Choice
+              label="Decision evaluator"
+              value={decisionProvider}
+              options={['development', 'jev']}
+              onChange={setDecisionProvider}
+            />
+            {decisionProvider === 'jev' && (
+              <p className="helper">
+                Jev independently scores concepts and reviews the storyboard
+                before video generation. Uncertain judgments pause for human
+                review. Calls are paid and count toward your project budget.
+              </p>
+            )}
+            <Choice
               label="Narration provider"
+
               value={narrationProvider}
               options={['development', 'openai', 'elevenlabs']}
               onChange={setNarrationProvider}
@@ -904,6 +923,14 @@ function ProjectView({
   const render = d.assets
     .filter((a) => a.type === 'render' && a.revision === p.revision)
     .at(-1);
+  const preflight = (d.decisions ?? []).filter(
+    (x) => x.stage === 'creative_preflight' && x.current,
+  );
+  const needsPreflight =
+    p.decisionProvider === 'jev' &&
+    d.scenes.length > 0 &&
+    preflight.length !== d.scenes.length;
+  const blockedPreflight = preflight.some((x) => !x.passed && !x.humanReview);
   const completed = d.scenes.filter((s) => s.assetId).length;
   const actions: Record<string, [string, string][]> = {
     idea: [['concepts', 'Develop concepts']],
@@ -936,6 +963,9 @@ function ProjectView({
     approved: [['package', 'Create platform packages']],
     revision_required: [['render', 'Render revision']],
   };
+  if (needsPreflight)
+    for (const state of ['assets_planned', 'generating', 'revision_required'])
+      actions[state] = [['preflight', 'Run Jev preflight']];
   return (
     <>
       <div className="project-heading">
@@ -957,6 +987,7 @@ function ProjectView({
             <span>Revision {p.revision}</span>
             <span>Video: {p.videoProvider ?? 'development'}</span>
             <span>Creative: {p.creativeProvider ?? 'development'}</span>
+            <span>Evaluation: {p.decisionProvider ?? 'development'}</span>
             <span>
               Audio: {p.narrationProvider ?? 'development'} · Music:{' '}
               {p.musicProvider ?? 'none'}
@@ -985,7 +1016,9 @@ function ProjectView({
             <button
               className="primary"
               key={action}
-              disabled={busy || active}
+              disabled={
+                busy || active || (action === 'generate' && blockedPreflight)
+              }
               onClick={() => {
                 if (action === 'generate' && p.videoProvider === 'runway') {
                   void act(`/api/projects/${p.id}/generate`)
@@ -1015,6 +1048,57 @@ function ProjectView({
           )}
           , plus OpenAI and tax. Your project budget applies.
         </div>
+      )}
+      {p.decisionProvider === 'jev' && preflight.length > 0 && (
+        <section className="panel">
+          <h3>Jev creative preflight · storyboard text only</h3>
+          <p className="helper">
+            This reviews planned shots and evidence consistency. It does not
+            inspect the rendered film.
+          </p>
+          {preflight.map((x) => (
+            <div key={x.id}>
+              <h4>
+                Scene {d.scenes.find((s) => s.id === x.sceneId)?.sceneNumber}
+              </h4>
+              <DecisionReadout decision={x} />
+              {x.humanReview && (
+                <p className="helper">
+                  Human review recorded: {x.humanReview.note}
+                </p>
+              )}
+            </div>
+          ))}
+          {blockedPreflight && !needsPreflight && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                perform(`/api/projects/${p.id}/approve-preflight`, {
+                  note: f.get('note'),
+                });
+              }}
+            >
+              <label className="field">
+                Review notes
+                <textarea
+                  name="note"
+                  required
+                  minLength={10}
+                  maxLength={1000}
+                  placeholder="Explain why the storyboard is ready despite the flagged judgments."
+                />
+              </label>
+              <button className="secondary" disabled={busy || active}>
+                Approve storyboard after human review
+              </button>
+              <p className="helper">
+                Approval applies to this storyboard and rubric only. Then choose
+                Generate film or Run workflow.
+              </p>
+            </form>
+          )}
+        </section>
       )}
       <div className="project-summary">
         <div className="panel brief">
@@ -1183,9 +1267,11 @@ function ProjectView({
           <div className="section-heading">
             <h2>Find the story worth telling</h2>
             <span>
-              {p.creativeProvider === 'openai'
-                ? 'AI EDITORIAL SCORES / NOT AUDIENCE DATA'
-                : 'DEVELOPMENT RUBRIC / NOT A RETENTION PREDICTION'}
+              {p.decisionProvider === 'jev'
+                ? 'JEV INDEPENDENT EVALUATION / NOT AUDIENCE DATA'
+                : p.creativeProvider === 'openai'
+                  ? 'AI EDITORIAL SCORES / NOT AUDIENCE DATA'
+                  : 'DEVELOPMENT RUBRIC / NOT A RETENTION PREDICTION'}
             </span>
           </div>
           <div className="concept-grid">
@@ -1207,6 +1293,13 @@ function ProjectView({
                 <div className="tags">
                   <span>{c.emotionalTarget}</span>
                 </div>
+                {p.decisionProvider === 'jev' && (
+                  <DecisionReadout
+                    decision={(d.decisions ?? []).find(
+                      (x) => x.conceptId === c.id && x.current,
+                    )}
+                  />
+                )}
                 <details>
                   <summary>Scoring rationale</summary>
                   <p>{c.explanation}</p>
@@ -1225,7 +1318,11 @@ function ProjectView({
                     !['idea', 'researching', 'concept_selected'].includes(
                       p.state,
                     ) ||
-                    c.selected
+                    c.selected ||
+                    (p.decisionProvider === 'jev' &&
+                      !(d.decisions ?? []).some(
+                        (x) => x.conceptId === c.id && x.current,
+                      ))
                   }
                   onClick={() =>
                     perform(`/api/projects/${p.id}/select`, { conceptId: c.id })
@@ -1829,5 +1926,67 @@ function Queue({
       Launch a production step to see persistent jobs, attempts and failures
       here.
     </Empty>
+  );
+}
+
+function DecisionReadout({ decision: d }: { decision?: DecisionEvaluation }) {
+  if (!d)
+    return (
+      <p className="helper">
+        Jev evaluation pending. Generator scores are not eligible for automatic
+        selection.
+      </p>
+    );
+  const levels = ['Weak', 'Below average', 'Average', 'Strong', 'Exceptional'];
+  return (
+    <div>
+      <p className="helper">
+        Evaluation: Jev · {Math.round(d.confidence * 100)}% minimum score
+        confidence ·{' '}
+        {d.passed
+          ? 'Eligible for automatic progression'
+          : 'Human review required'}
+      </p>
+      {d.reasons.length > 0 && (
+        <ul className="helper">
+          {d.reasons.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      )}
+      <details>
+        <summary>Judgments and probability distributions</summary>
+        {Object.entries(d.answers).map(([key, a]) => (
+          <div key={key} className="panel">
+            <strong>{label(key)}</strong>
+            {a.type === 'score' ? (
+              <>
+                <p>
+                  {d.normalizedScores[key]}/100 · nearest level:{' '}
+                  {levels[Math.round(a.score)]} ·{' '}
+                  {Math.round(a.confidence * 100)}% confidence
+                </p>
+                <div className="tags">
+                  {Object.entries(a.probabilities).map(
+                    ([level, probability]) => (
+                      <span key={level}>
+                        {levels[Number(level)]}:{' '}
+                        {(probability * 100).toFixed(1)}%
+                      </span>
+                    ),
+                  )}
+                </div>
+              </>
+            ) : (
+              <p>Probability of yes: {(a.noul * 100).toFixed(1)}% (Noul)</p>
+            )}
+          </div>
+        ))}
+        <p className="helper">
+          {d.model} · {d.version}. Confidence measures distribution
+          concentration; it is not a guarantee of creative success.
+        </p>
+      </details>
+    </div>
   );
 }
