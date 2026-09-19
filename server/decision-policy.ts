@@ -37,16 +37,21 @@ const scoreSchema = z.object({
 export function parseScore(value: unknown): ScoreJudgment {
   const a = scoreSchema.parse(value);
   const keys = ['0', '1', '2', '3', '4'];
+  // Provider decimals can land just above a tolerance after binary arithmetic:
+  // e.g. 3.68 - 3.65 === 0.03000000000000025. Preserve the existing bounds.
+  const epsilon = 1e-9;
   if (
     Object.keys(a.probabilities).length !== 5 ||
     keys.some((k) => a.probabilities[k] === undefined) ||
     Math.abs(
       Object.values(a.probabilities).reduce((sum, p) => sum + p, 0) - 1,
-    ) > 0.01 ||
+    ) >
+      0.01 + epsilon ||
     Math.abs(
       keys.reduce((sum, k) => sum + Number(k) * a.probabilities[k], 0) -
         a.score,
-    ) > 0.03
+    ) >
+      0.03 + epsilon
   )
     throw new DomainError(
       'Jev returned an inconsistent score distribution. Review the recorded response.',

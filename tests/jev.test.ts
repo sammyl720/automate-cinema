@@ -504,3 +504,86 @@ void test('Jev preflight gates new Runway purchases but allows retrieval of an e
     runwayTransport.fetch = original;
   }
 });
+
+void test('Jev rounded decimal scores accept the tolerance boundary without relaxing validation', async () => {
+  const { parseScore } = await import('../server/decision-policy');
+  const response = {
+    type: 'score',
+    score: 3.65,
+    confidence: 0.71,
+    legend: Object.fromEntries(levels.map((v, i) => [i, v])),
+    probabilities: {
+      '0': 0,
+      '1': 0,
+      '2': 0.01,
+      '3': 0.3,
+      '4': 0.6900000000000001,
+    },
+  };
+  assert.equal(parseScore(response).score, 3.65);
+  assert.throws(
+    () => parseScore({ ...response, score: 3.64999 }),
+    /inconsistent/,
+  );
+  assert.throws(
+    () =>
+      parseScore({
+        ...response,
+        probabilities: { ...response.probabilities, '4': 0.75 },
+      }),
+    /inconsistent/,
+  );
+  assert.throws(() =>
+    parseScore({
+      ...response,
+      probabilities: { '0': 0, '1': 0, '2': 0.01, '3': 0.3 },
+    }),
+  );
+  assert.throws(() => parseScore({ ...response, confidence: 1.01 }));
+  const massBoundary = {
+    ...response,
+    score: 3.69,
+    probabilities: { '0': 0.01, '1': 0, '2': 0.01, '3': 0.3, '4': 0.69 },
+  };
+  assert.doesNotThrow(() => parseScore(massBoundary));
+  assert.throws(
+    () =>
+      parseScore({
+        ...massBoundary,
+        probabilities: { ...massBoundary.probabilities, '0': 0.01001 },
+      }),
+    /inconsistent/,
+  );
+});
+void test('preflight recovers a saved rounded response without another provider request', async () => {
+  mock();
+  const p = await storyboard();
+  await handle(job(p, 'preflight'), signal);
+  const before = detail(p.id);
+  const d = before.decisions.find((x) => x.stage === 'creative_preflight')!;
+  save('decision', { ...d, deletedAt: new Date().toISOString() });
+  const call = before.apiCalls.find((x) => x.id === d.callId)!;
+  const result = call.result as { answers: Record<string, unknown> };
+  result.answers.visualSpecificity = {
+    type: 'score',
+    score: 3.65,
+    confidence: 0.71,
+    legend: Object.fromEntries(levels.map((v, i) => [i, v])),
+    probabilities: {
+      '0': 0,
+      '1': 0,
+      '2': 0.01,
+      '3': 0.3,
+      '4': 0.6900000000000001,
+    },
+  };
+  save('apiCall', { ...call, result });
+  typesafeTransport.fetch = async () => {
+    throw new Error('Replay must never contact the provider');
+  };
+  await handle(job(p, 'preflight'), signal);
+  const after = detail(p.id);
+  assert.equal(after.decisions.length, 3);
+  assert.equal(after.apiCalls.length, before.apiCalls.length);
+  assert.equal(after.project.spentUsd, before.project.spentUsd);
+});
