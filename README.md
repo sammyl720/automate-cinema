@@ -112,3 +112,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for domain boundaries, recovery semanti
 ## Automated checks
 
 GitHub Actions runs type checking, lint, tests (including real FFmpeg rendering and backup verification), and the production build on pushes and pull requests. It uses development providers and mocked OpenAI responses, requiring no provider credentials.
+
+### Narration and music options
+
+Select ElevenLabs narration and optional Eleven Music when creating a production. See [audio setup](docs/AUDIO_SETUP.md) for credentials and usage.

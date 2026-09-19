@@ -62,3 +62,7 @@ The Runway tests use mocked HTTP responses and real FFmpeg fixtures, covering th
 - [Runway Gen-4.5 request schema](https://github.com/runwayml/sdk-node/blob/main/src/resources/text-to-video.ts)
 - [Runway task response schema](https://github.com/runwayml/sdk-node/blob/main/src/resources/tasks.ts)
 - [Runway output storage](https://docs.dev.runwayml.com/assets/outputs/)
+
+### Narration and music options
+
+Select ElevenLabs narration and optional Eleven Music when creating a production. See [audio setup](AUDIO_SETUP.md) for credentials and usage.

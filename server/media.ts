@@ -124,19 +124,31 @@ export async function renderTimeline(
     )
     .at(-1);
   if (narration) args.push('-i', mediaPath(narration.path));
+  const music =
+    p.musicProvider === 'elevenlabs'
+      ? assets
+          .filter((a) => a.type === 'music' && a.revision === p.revision)
+          .at(-1)
+      : undefined;
+  if (music) args.push('-i', mediaPath(music.path));
   const filters = inputs
     .map(
       (_, i) =>
         `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=24,trim=duration=${ordered[i].durationSeconds},setpts=PTS-STARTPTS[v${i}]`,
     )
     .join(';');
+  const audioFilters =
+    narration && music
+      ? `;[${inputs.length}:a]loudnorm=I=-16:TP=-2:LRA=11,aresample=48000,asplit[voice][side];[${inputs.length + 1}:a]loudnorm=I=-20:TP=-2:LRA=11,aresample=48000,volume=${p.musicVolumeDb ?? -12}dB,apad,atrim=duration=${p.duration},afade=t=in:d=0.5,afade=t=out:st=${Math.max(0, p.duration - 1.5)}:d=1.5[bed];[bed][side]sidechaincompress=threshold=0.025:ratio=6:attack=20:release=300[ducked];[voice][ducked]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.89:level=false[outa]`
+      : '';
   args.push(
     '-filter_complex',
-    `${filters};${inputs.map((_, i) => `[v${i}]`).join('')}concat=n=${inputs.length}:v=1:a=0[outv]`,
+    `${filters};${inputs.map((_, i) => `[v${i}]`).join('')}concat=n=${inputs.length}:v=1:a=0[outv]${audioFilters}`,
     '-map',
     '[outv]',
   );
-  if (narration)
+  if (narration && music) args.push('-map', '[outa]', '-c:a', 'aac');
+  else if (narration)
     args.push(
       '-map',
       `${inputs.length}:a:0`,
@@ -170,6 +182,9 @@ export async function renderTimeline(
     parameters: {
       sceneAssets: inputs.map((a) => a.id),
       narrationAsset: narration?.id,
+      musicAsset: music?.id,
+      musicVolumeDb: music ? (p.musicVolumeDb ?? -12) : undefined,
+      musicDucking: Boolean(music),
       isSpeech: narration?.parameters.isSpeech === true,
       developmentPlaceholder: inputs.some(
         (a) => a.parameters.developmentPlaceholder !== false,
@@ -217,10 +232,9 @@ export async function subtitles(p: Project, scenes: Scene[]) {
     await assetFile(p, 'subtitles', key, {
       revision: p.revision,
       parameters: {
-        timing:
-          p.narrationProvider === 'openai'
-            ? 'Scene-level timing fitted to speech duration; not word-aligned'
-            : 'scene-level canonical transcript; not speech-aligned',
+        timing: ['openai', 'elevenlabs'].includes(p.narrationProvider)
+          ? 'Scene-level timing fitted to speech duration; not word-aligned'
+          : 'scene-level canonical transcript; not speech-aligned',
       },
       mime: ext === 'vtt' ? 'text/vtt' : 'application/x-subrip',
     });

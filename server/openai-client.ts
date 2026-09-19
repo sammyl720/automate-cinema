@@ -78,18 +78,29 @@ export async function boundedBody(
   }
   return Buffer.concat(chunks);
 }
+export const elevenLabsTransport = {
+  fetch: (url: string, init: RequestInit) => fetch(url, init),
+};
+export function requireElevenLabs() {
+  if (!config.ELEVENLABS_API_KEY)
+    throw new DomainError(
+      'Set ELEVENLABS_API_KEY in the server .env and restart.',
+      422,
+    );
+}
 interface CallOptions<T> {
+  provider?: 'openai' | 'elevenlabs';
+  voiceId?: string;
+  pricingBasis?: string;
   job: Job;
   stage: string;
   sceneId?: string;
   model: string;
-  endpoint: 'responses' | 'audio/speech';
+  endpoint: 'responses' | 'audio/speech' | 'eleven-speech' | 'eleven-music';
   body: unknown;
   estimatedUsd: number;
   signal: AbortSignal;
-  decode: (
-    response: Response,
-  ) => Promise<{
+  decode: (response: Response) => Promise<{
     result: T;
     calculatedUsd: number;
     usage: Record<string, unknown>;
@@ -98,7 +109,17 @@ interface CallOptions<T> {
 export async function paidCall<T>(
   options: CallOptions<T>,
 ): Promise<{ result: T; call: ApiCall }> {
-  requireOpenAI();
+  const eleven = options.provider === 'elevenlabs';
+  const providerName = eleven ? 'ElevenLabs' : 'OpenAI';
+  if (eleven) requireElevenLabs();
+  else requireOpenAI();
+  if (eleven !== options.endpoint.startsWith('eleven-'))
+    throw new DomainError('Provider endpoint mismatch');
+  if (
+    options.endpoint === 'eleven-speech' &&
+    !/^[a-zA-Z0-9_-]{1,100}$/.test(options.voiceId ?? '')
+  )
+    throw new DomainError('Invalid ElevenLabs voice ID');
   options.signal.throwIfAborted();
   const key = `${options.job.id}:${options.stage}:${options.sceneId ?? 'project'}`;
   const previous = list<ApiCall>('apiCall', options.job.projectId)
@@ -126,13 +147,14 @@ export async function paidCall<T>(
       sceneId: options.sceneId,
       key,
       stage: options.stage,
-      provider: 'openai',
+      provider: options.provider ?? 'openai',
       model: options.model,
       status: 'reserved',
       attempt: (previous?.attempt ?? 0) + 1,
       estimatedUsd: options.estimatedUsd,
       calculatedUsd: 0,
       pricingBasis:
+        options.pricingBasis ??
         'Standard rates 2026-09-08; calculated, not provider invoice',
       request: options.body,
     });
@@ -170,19 +192,23 @@ export async function paidCall<T>(
   const started = Date.now();
   let response: Response;
   try {
-    response = await openaiTransport.fetch(
-      `https://api.openai.com/v1/${options.endpoint}`,
+    response = await (eleven ? elevenLabsTransport : openaiTransport).fetch(
+      eleven
+        ? `https://api.elevenlabs.io/v1/${options.endpoint === 'eleven-music' ? 'music' : `text-to-speech/${options.voiceId}`}?output_format=mp3_44100_128`
+        : `https://api.openai.com/v1/${options.endpoint}`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${config.OPENAI_API_KEY}`,
+          ...(eleven
+            ? { 'xi-api-key': config.ELEVENLABS_API_KEY }
+            : { Authorization: `Bearer ${config.OPENAI_API_KEY}` }),
           'Content-Type': 'application/json',
           'X-Client-Request-Id': call!.id,
         },
         body: JSON.stringify(options.body),
         signal: AbortSignal.any([
           options.signal,
-          AbortSignal.timeout(config.OPENAI_TIMEOUT_MS),
+          AbortSignal.timeout(eleven ? 150000 : config.OPENAI_TIMEOUT_MS),
         ]),
       },
     );
@@ -193,7 +219,7 @@ export async function paidCall<T>(
       false,
     );
     throw new DomainError(
-      'OpenAI request interrupted. Its budget reservation is retained; automatic paid retry is blocked.',
+      `${providerName} request interrupted. Its budget reservation is retained; automatic paid retry is blocked.`,
     );
   }
   const requestId = response.headers.get('x-request-id') ?? undefined;
@@ -203,26 +229,31 @@ export async function paidCall<T>(
     if (response.status >= 500) {
       settle(
         'uncertain',
-        { requestId, error: `OpenAI HTTP ${response.status}; outcome unknown` },
+        {
+          requestId,
+          error: `${providerName} HTTP ${response.status}; outcome unknown`,
+        },
         false,
       );
       throw new DomainError(
-        'OpenAI server error; inspect the recorded request ID before retrying paid work.',
+        `${providerName} server error; inspect the recorded request ID before retrying paid work.`,
       );
     }
     settle(
       'failed',
       {
         requestId,
-        error: `OpenAI HTTP ${response.status}`,
+        error: `${providerName} HTTP ${response.status}`,
         latencyMs: Date.now() - started,
       },
       true,
     );
     if (response.status === 429)
-      throw new Error('OpenAI rate limit reached; bounded retry scheduled');
+      throw new Error(
+        `${providerName} rate limit reached; bounded retry scheduled`,
+      );
     throw new DomainError(
-      `OpenAI rejected the request (HTTP ${response.status}). Check key, billing, permissions and model access.`,
+      `${providerName} rejected the request (HTTP ${response.status}). Check key, billing, permissions and model access.`,
       422,
     );
   }
@@ -253,7 +284,7 @@ export async function paidCall<T>(
       false,
     );
     throw new DomainError(
-      'OpenAI returned an unreadable response. Paid retry blocked; inspect the request record.',
+      `${providerName} returned an unreadable response. Paid retry blocked; inspect the request record.`,
     );
   }
 }

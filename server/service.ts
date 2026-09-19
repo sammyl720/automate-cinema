@@ -26,7 +26,7 @@ import {
 } from './policy';
 import { getProviderRegistry } from './providers';
 import { requireRunway } from './runway';
-import { requireOpenAI } from './openai-client';
+import { requireElevenLabs, requireOpenAI } from './openai-client';
 import { constructPrompt } from './creative';
 export function createProject(input: unknown): Project {
   const data = projectInput.parse(input);
@@ -39,6 +39,11 @@ export function createProject(input: unknown): Project {
   }
   if (data.creativeProvider === 'openai' || data.narrationProvider === 'openai')
     requireOpenAI();
+  if (
+    data.narrationProvider === 'elevenlabs' ||
+    data.musicProvider === 'elevenlabs'
+  )
+    requireElevenLabs();
   return transaction(() => {
     const p = save('project', {
       ...base(),
@@ -134,6 +139,7 @@ export function requestStage(projectId: string, type: JobType) {
     storyboard: ['script_drafting'],
     generate: ['assets_planned', 'revision_required', 'generating'],
     narration: ['generating'],
+    music: ['generating'],
     render: ['generating', 'revision_required', 'assembling'],
     evaluate: ['assembling', 'evaluating'],
     package: ['approved', 'packaged'],
@@ -179,7 +185,7 @@ export function requestStage(projectId: string, type: JobType) {
     return;
   }
   if (
-    ['render', 'narration'].includes(type) &&
+    ['render', 'narration', 'music'].includes(type) &&
     (!d.scenes.length ||
       d.scenes.some((s) => !s.assetId || s.status === 'rejected'))
   )
@@ -191,6 +197,14 @@ export function requestStage(projectId: string, type: JobType) {
     )
   )
     throw new DomainError('Generate the narration test track first');
+  if (type === 'music' && p.musicProvider !== 'elevenlabs')
+    throw new DomainError('Select a music provider when creating the project');
+  if (
+    type === 'render' &&
+    p.musicProvider === 'elevenlabs' &&
+    !d.assets.some((a) => a.type === 'music' && a.revision === p.revision)
+  )
+    throw new DomainError('Generate the music track first');
   enqueue(projectId, type, `${projectId}:${type}:r${p.revision}`);
 }
 export function startAutomation(projectId: string) {
@@ -262,6 +276,11 @@ export function advance(id: string) {
         )
       )
         requestStage(id, 'narration');
+      else if (
+        p.musicProvider === 'elevenlabs' &&
+        !d.assets.some((a) => a.type === 'music' && a.revision === p.revision)
+      )
+        requestStage(id, 'music');
       else requestStage(id, 'render');
     } else if (p.state === 'assembling') requestStage(id, 'evaluate');
     else if (p.state === 'approved') requestStage(id, 'package');

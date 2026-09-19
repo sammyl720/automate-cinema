@@ -559,7 +559,9 @@ export default function Home() {
                               ? p.status === 'configured'
                                 ? 'Key configured. Choose OpenAI when creating a project for paid concepts, scripts, storyboards and speech. Account access is checked on first request.'
                                 : 'Set OPENAI_API_KEY in the server .env and restart. Choose your video provider separately; keys stay on the server.'
-                              : 'Adapter is not implemented. No requests or charges will be made.'}
+                              : p.id === 'elevenlabs'
+                                ? 'Set ELEVENLABS_API_KEY in the server .env and restart. Select ElevenLabs narration and/or music when creating a production. Configured means a key is present; account access is checked on first request.'
+                                : 'Adapter is not implemented. No requests or charges will be made.'}
                       </p>
                       <div className="tags">
                         <span>{p.model}</span>
@@ -625,6 +627,7 @@ function NewProject({
     [videoProvider, setVideoProvider] = useState('development'),
     [creativeProvider, setCreativeProvider] = useState('development'),
     [narrationProvider, setNarrationProvider] = useState('development'),
+    [musicProvider, setMusicProvider] = useState('none'),
     [voice, setVoice] = useState('alloy');
   return (
     <Dialog
@@ -659,6 +662,12 @@ function NewProject({
               videoProvider,
               creativeProvider,
               narrationProvider,
+              musicProvider,
+              elevenVoiceId: f.get('elevenVoiceId') || undefined,
+              voiceStability: Number(f.get('voiceStability') ?? 0.5),
+              voiceStyle: Number(f.get('voiceStyle') ?? 0),
+              musicPrompt: f.get('musicPrompt') || undefined,
+              musicVolumeDb: Number(f.get('musicVolumeDb') ?? -12),
               voice,
               budget: {
                 maximumUsd: Number(f.get('budget')),
@@ -749,9 +758,80 @@ function NewProject({
             <Choice
               label="Narration provider"
               value={narrationProvider}
-              options={['development', 'openai']}
+              options={['development', 'openai', 'elevenlabs']}
               onChange={setNarrationProvider}
             />
+            {narrationProvider === 'elevenlabs' && (
+              <>
+                <label className="field">
+                  ElevenLabs voice ID
+                  <input
+                    name="elevenVoiceId"
+                    defaultValue="JBFqnCBsd6RMkjVDRZzb"
+                    required
+                    pattern="[a-zA-Z0-9_-]{1,100}"
+                  />
+                </label>
+                <label className="field">
+                  Voice stability (0 expressive · 1 consistent)
+                  <input
+                    name="voiceStability"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    defaultValue="0.5"
+                    required
+                  />
+                </label>
+                <label className="field">
+                  Style exaggeration
+                  <input
+                    name="voiceStyle"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    defaultValue="0"
+                    required
+                  />
+                </label>
+              </>
+            )}
+            <Choice
+              label="Music provider"
+              value={musicProvider}
+              options={['none', 'elevenlabs']}
+              onChange={setMusicProvider}
+            />
+            {musicProvider === 'elevenlabs' && (
+              <>
+                <label className="field">
+                  Instrumental soundtrack prompt
+                  <textarea
+                    name="musicPrompt"
+                    maxLength={2000}
+                    rows={3}
+                    defaultValue="Subtle cinematic instrumental score, warm textures, gentle emotional build, spacious arrangement beneath spoken narration."
+                  />
+                </label>
+                <label className="field">
+                  Music level / dB (lower is quieter)
+                  <input
+                    name="musicVolumeDb"
+                    type="number"
+                    min="-40"
+                    max="0"
+                    defaultValue="-12"
+                    required
+                  />
+                </label>
+                <p className="helper">
+                  Eleven Music generates an instrumental soundtrack. Music fades
+                  in and out and automatically dips under narration.
+                </p>
+              </>
+            )}
             {narrationProvider === 'openai' && (
               <Choice
                 label="AI voice"
@@ -790,6 +870,15 @@ function NewProject({
                 ? 'OpenAI text and speech are paid; video uses free test patterns. Assisted mode pauses before video generation. Starting a workflow authorizes its selected AI stages.'
                 : 'Development generation costs $0. Assisted mode pauses before generation.'}
           </p>
+          {(narrationProvider === 'elevenlabs' ||
+            musicProvider === 'elevenlabs') && (
+            <p className="helper">
+              ElevenLabs audio is paid. Estimates use server-configured rates
+              (default $0.10 / 1,000 speech characters and $0.15 / minute of
+              music). Starting the workflow authorizes the selected audio
+              stages.
+            </p>
+          )}
           <button disabled={busy} className="primary wide">
             <Plus size={18} /> Create production
           </button>
@@ -828,11 +917,16 @@ function ProjectView({
             (a) =>
               a.type === 'narration' && !a.sceneId && a.revision === p.revision,
           )
-          ? [['render', 'Render film']]
+          ? p.musicProvider === 'elevenlabs' &&
+            !d.assets.some(
+              (a) => a.type === 'music' && a.revision === p.revision,
+            )
+            ? [['music', 'Generate soundtrack']]
+            : [['render', 'Render film']]
           : [
               [
                 'narration',
-                p.narrationProvider === 'openai'
+                ['openai', 'elevenlabs'].includes(p.narrationProvider)
                   ? 'Generate AI narration'
                   : 'Generate test audio',
               ],
@@ -863,7 +957,10 @@ function ProjectView({
             <span>Revision {p.revision}</span>
             <span>Video: {p.videoProvider ?? 'development'}</span>
             <span>Creative: {p.creativeProvider ?? 'development'}</span>
-            <span>Audio: {p.narrationProvider ?? 'development'}</span>
+            <span>
+              Audio: {p.narrationProvider ?? 'development'} · Music:{' '}
+              {p.musicProvider ?? 'none'}
+            </span>
           </div>
         </div>
         <div className="actions">
@@ -1069,7 +1166,7 @@ function ProjectView({
                       !a.sceneId &&
                       a.revision === p.revision,
                   )
-                    ? p.narrationProvider === 'openai'
+                    ? ['openai', 'elevenlabs'].includes(p.narrationProvider)
                       ? 'AI-generated voice · scene-aligned'
                       : 'Development test tone · not spoken narration'
                     : 'Audio not generated'}
@@ -1280,7 +1377,7 @@ function ProjectView({
                       {p.videoProvider === 'runway'
                         ? 'This film uses AI-generated video. '
                         : 'This preview uses test visuals. '}
-                      {p.narrationProvider === 'openai'
+                      {['openai', 'elevenlabs'].includes(p.narrationProvider)
                         ? 'Narration is AI-generated, not a human voice.'
                         : 'Audio is a test tone.'}{' '}
                       Technical checks do not evaluate story quality or factual
@@ -1600,14 +1697,16 @@ function AssetGrid({ assets }: { assets: Asset[] }) {
               src={`/media/${a.id}`}
               alt="Development thumbnail"
             />
-          ) : a.type === 'narration' ? (
+          ) : a.type === 'narration' || a.type === 'music' ? (
             <audio
               src={`/media/${a.id}`}
               controls
               aria-label={
                 a.parameters.isSpeech
                   ? 'AI-generated narration'
-                  : 'Development audio test tone'
+                  : a.type === 'music'
+                    ? 'AI-generated instrumental soundtrack'
+                    : 'Development audio test tone'
               }
             >
               <track

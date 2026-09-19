@@ -29,7 +29,24 @@ export const projectInput = z.object({
   quality: z.enum(['draft', 'final']).default('draft'),
   videoProvider: z.enum(['development', 'runway']).default('development'),
   creativeProvider: z.enum(['development', 'openai']).default('development'),
-  narrationProvider: z.enum(['development', 'openai']).default('development'),
+  narrationProvider: z
+    .enum(['development', 'openai', 'elevenlabs'])
+    .default('development'),
+  elevenVoiceId: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]{1,100}$/)
+    .default('JBFqnCBsd6RMkjVDRZzb'),
+  voiceStability: z.number().min(0).max(1).default(0.5),
+  voiceStyle: z.number().min(0).max(1).default(0),
+  musicProvider: z.enum(['none', 'elevenlabs']).default('none'),
+  musicPrompt: z
+    .string()
+    .trim()
+    .max(2000)
+    .default(
+      'Subtle cinematic instrumental score, warm textures, gentle emotional build, spacious arrangement beneath spoken narration.',
+    ),
+  musicVolumeDb: z.number().min(-40).max(0).default(-12),
   voice: z
     .enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'])
     .default('alloy'),
@@ -130,6 +147,7 @@ export interface Asset extends RecordBase {
   type:
     | 'video'
     | 'narration'
+    | 'music'
     | 'render'
     | 'subtitles'
     | 'thumbnail'
@@ -170,6 +188,7 @@ export const jobTypes = [
   'storyboard',
   'generate',
   'narration',
+  'music',
   'render',
   'evaluate',
   'package',
@@ -296,7 +315,7 @@ export interface ApiCall extends RecordBase {
   sceneId?: string;
   key: string;
   stage: string;
-  provider: 'openai';
+  provider: 'openai' | 'elevenlabs';
   model: string;
   status: 'reserved' | 'completed' | 'failed' | 'uncertain';
   attempt: number;

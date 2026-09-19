@@ -94,7 +94,16 @@ export const providerRegistry: ProviderInfo[] = [
     costPerSecond: 0.12,
     model: 'gen4.5',
   },
-  ...['Higgsfield', 'ElevenLabs'].map((name) => ({
+  {
+    id: 'elevenlabs',
+    name: 'ElevenLabs · narration & music',
+    status: 'authentication_required',
+    demo: false,
+    capabilities: { ...caps, textToVideo: false, maximumDurationSeconds: 90 },
+    costPerSecond: 0,
+    model: 'eleven_multilingual_v2 / music_v2_5',
+  },
+  ...['Higgsfield'].map((name) => ({
     id: name.toLowerCase(),
     name,
     status: 'unsupported' as const,
@@ -230,6 +239,13 @@ export function getProviderRegistry(): ProviderInfo[] {
               ? 'configured'
               : 'authentication_required',
           }
-        : p,
+        : p.id === 'elevenlabs'
+          ? {
+              ...p,
+              status: config.ELEVENLABS_API_KEY
+                ? 'configured'
+                : 'authentication_required',
+            }
+          : p,
   );
 }

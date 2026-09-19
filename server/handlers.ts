@@ -13,6 +13,7 @@ import type {
 import { trace } from './creative';
 import { creativeProvider, persistStoryboard } from './creative-providers';
 import { generateRunway } from './runway';
+import { generateMusic } from './music';
 import { spokenNarration } from './narration';
 import { transition } from './service';
 import { checkBudget, selectVideoProvider, DomainError } from './policy';
@@ -212,10 +213,16 @@ export async function handle(job: Job, signal: AbortSignal) {
       throw e;
     }
   }
-  if (job.type === 'narration' && p.narrationProvider === 'openai') {
+  if (
+    job.type === 'narration' &&
+    ['openai', 'elevenlabs'].includes(p.narrationProvider)
+  ) {
     await spokenNarration(p, job, signal);
   }
-  if (job.type === 'narration' && p.narrationProvider !== 'openai') {
+  if (
+    job.type === 'narration' &&
+    !['openai', 'elevenlabs'].includes(p.narrationProvider)
+  ) {
     const scenes = list<Scene>('scene', p.id);
     const result = await developmentNarration.generate({
       project: p,
@@ -235,6 +242,7 @@ export async function handle(job: Job, signal: AbortSignal) {
     });
     await subtitles(p, scenes);
   }
+  if (job.type === 'music') await generateMusic(p, job, signal);
   if (job.type === 'render') {
     p = transition(p, 'assembling');
     await renderTimeline(
@@ -314,11 +322,14 @@ export async function handle(job: Job, signal: AbortSignal) {
         subtitleAssetId: subtitle.id,
         thumbnailAssetId: thumbnail.id,
         disclosure:
-          p.videoProvider === 'runway'
-            ? `AI-generated video using Runway. ${p.narrationProvider === 'openai' ? 'AI-generated speech, not a human voice.' : 'Test tone; no spoken narration.'} Human review required before release.`
-            : p.narrationProvider === 'openai'
+          (p.musicProvider === 'elevenlabs'
+            ? 'AI-generated instrumental music using ElevenLabs. '
+            : '') +
+          (p.videoProvider === 'runway'
+            ? `AI-generated video using Runway. ${['openai', 'elevenlabs'].includes(p.narrationProvider) ? 'AI-generated speech, not a human voice.' : 'Test tone; no spoken narration.'} Human review required before release.`
+            : ['openai', 'elevenlabs'].includes(p.narrationProvider)
               ? 'PREVIEW: development test visuals with AI-generated speech, not a human voice. Review before release.'
-              : 'DEVELOPMENT PREVIEW: deterministic visuals and a test tone. Not finished AI footage or speech.',
+              : 'DEVELOPMENT PREVIEW: deterministic visuals and a test tone. Not finished AI footage or speech.'),
         status: 'ready',
       };
       const key = `${p.id}/${platform.replaceAll(' ', '-').toLowerCase()}-r${p.revision}.json`;

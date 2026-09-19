@@ -17,6 +17,9 @@ export async function spokenNarration(
   job: Job,
   signal: AbortSignal,
 ) {
+  const eleven = p.narrationProvider === 'elevenlabs';
+  const model = eleven ? 'eleven_multilingual_v2' : SPEECH_MODEL;
+  const voice = eleven ? p.elevenVoiceId : (p.voice ?? 'alloy');
   await prepareDir(p.id);
   const scenes = list<Scene>('scene', p.id).sort(
     (a, b) => a.sceneNumber - b.sceneNumber,
@@ -25,25 +28,46 @@ export async function spokenNarration(
   const timings: { sceneNumber: number; start: number; end: number }[] = [];
   let totalCost = 0;
   for (const s of scenes) {
-    const key = `${p.id}/speech-${s.id}-r${p.revision}.wav`;
+    const key = `${p.id}/speech-${s.id}-r${p.revision}.${eleven ? 'mp3' : 'wav'}`;
     if (!s.narration.trim() || s.narration.length > 4096)
       throw new DomainError(
         'Spoken narration requires 1–4096 characters per scene. Edit the narration first.',
       );
     const estimate =
-      (Array.from(s.narration).length * rates.speechCharacters) / 1e6;
+      Array.from(s.narration).length *
+      (eleven
+        ? config.ELEVENLABS_TTS_USD_PER_1000 / 1000
+        : rates.speechCharacters / 1e6);
     const { result, call } = await paidCall({
       job,
       stage: 'narration',
       sceneId: s.id,
-      model: SPEECH_MODEL,
-      endpoint: 'audio/speech',
-      body: {
-        model: SPEECH_MODEL,
-        voice: p.voice ?? 'alloy',
-        input: s.narration,
-        response_format: 'wav',
-      },
+      provider: eleven ? 'elevenlabs' : 'openai',
+      voiceId: voice,
+      pricingBasis: eleven
+        ? 'Configured ElevenLabs character rate; estimate, not invoice'
+        : undefined,
+      model,
+      endpoint: eleven ? 'eleven-speech' : 'audio/speech',
+      body: eleven
+        ? {
+            model_id: model,
+            text: s.narration,
+            previous_text: scenes[scenes.indexOf(s) - 1]?.narration,
+            next_text: scenes[scenes.indexOf(s) + 1]?.narration,
+            voice_settings: {
+              stability: p.voiceStability ?? 0.5,
+              similarity_boost: 0.75,
+              style: p.voiceStyle ?? 0,
+              use_speaker_boost: true,
+            },
+          }
+        : {
+            model,
+            voice,
+            input: s.narration,
+            response_format: 'wav',
+          },
       estimatedUsd: estimate,
       signal,
       decode: async (response) => {
@@ -102,8 +126,9 @@ export async function spokenNarration(
     });
     if (!list<Asset>('asset', p.id).some((a) => a.path === key))
       await assetFile(p, 'narration', key, {
+        mime: eleven ? 'audio/mpeg' : 'audio/wav',
         sceneId: s.id,
-        provider: 'openai',
+        provider: eleven ? 'elevenlabs' : 'openai',
         duration,
         revision: p.revision,
         costUsd: call.calculatedUsd,
@@ -111,8 +136,8 @@ export async function spokenNarration(
         parameters: {
           isSpeech: true,
           role: 'scene-source',
-          voice: p.voice ?? 'alloy',
-          model: SPEECH_MODEL,
+          voice,
+          model,
           callId: call.id,
         },
         license:
@@ -138,7 +163,7 @@ export async function spokenNarration(
   const existing = list<Asset>('asset', p.id).find((a) => a.path === key);
   if (!existing)
     await assetFile(p, 'narration', key, {
-      provider: 'openai',
+      provider: eleven ? 'elevenlabs' : 'openai',
       duration: p.duration,
       revision: p.revision,
       costUsd: 0,
@@ -146,8 +171,8 @@ export async function spokenNarration(
       parameters: {
         isSpeech: true,
         role: 'timeline',
-        voice: p.voice ?? 'alloy',
-        model: SPEECH_MODEL,
+        voice,
+        model,
         sourceCostUsd: totalCost,
         timings,
         transcript: scenes.map((s) => s.narration).join(' '),

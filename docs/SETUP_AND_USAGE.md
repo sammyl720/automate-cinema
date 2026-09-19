@@ -17,7 +17,8 @@ There are two different kinds of credentials:
 | OpenAI concepts, scripts, storyboards and speech | Implemented; opt-in per project | Server-side `OPENAI_API_KEY`; see [OpenAI setup](OPENAI_SETUP.md) |
 | FFmpeg rendering, subtitles and packaging | Working locally | None |
 | Runway Gen-4.5 | Implemented; opt-in real video | `RUNWAY_API_KEY`; see [MVP guide](MVP_QUICKSTART.md) |
-| Higgsfield, ElevenLabs | Listed as unsupported | No; keys are not consumed |
+| ElevenLabs | Narration and instrumental music; see [audio setup](AUDIO_SETUP.md) | Yes, when selected |
+| Higgsfield | Listed as unsupported | No; keys are not consumed |
 | Social publishing and analytics | Not connected | No; OAuth/account connection is not implemented |
 | PostgreSQL, Redis and S3 | Not used in this milestone | None |
 
@@ -392,3 +393,7 @@ The integration suite renders real test files in temporary storage without conta
 Create **The Last Signal** as a six-second fiction project in assisted mode. Run it to the storyboard pause, review the three shots, authorize generation, then resume the workflow. Play the result in Review and download a package in Delivery. Finally, edit one scene and rebuild to see revision history and package invalidation in action.
 
 You will have exercised the entire implemented production flow without any external API credentials or generation charges.
+
+## Improved audio
+
+See [ElevenLabs narration and music setup](AUDIO_SETUP.md) for credentials, voices, soundtrack prompts, mixing controls, and cost estimates.

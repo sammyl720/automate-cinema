@@ -3,6 +3,9 @@ import { resolve } from 'node:path';
 const parsed = z
   .object({
     OPENAI_API_KEY: z.string().default(''),
+    ELEVENLABS_API_KEY: z.string().default(''),
+    ELEVENLABS_TTS_USD_PER_1000: z.coerce.number().positive().default(0.1),
+    ELEVENLABS_MUSIC_USD_PER_MINUTE: z.coerce.number().positive().default(0.15),
     RUNWAY_API_KEY: z.string().default(''),
     OPENAI_TIMEOUT_MS: z.coerce
       .number()
