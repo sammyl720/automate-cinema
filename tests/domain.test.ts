@@ -111,3 +111,12 @@ void test('content value uses completion and meaningful engagement', () => {
     0,
   );
 });
+
+void test('voice ID pattern is valid under browser Unicode Sets semantics', async () => {
+  const { VOICE_ID_PATTERN } = await import('../shared/domain');
+  const pattern = new RegExp(`^(?:${VOICE_ID_PATTERN})$`, 'v');
+  for (const id of ['JBFqnCBsd6RMkjVDRZzb', 'voice-id_123'])
+    assert.equal(pattern.test(id), true);
+  for (const id of ['', 'voice id', 'voice/id', 'x'.repeat(101)])
+    assert.equal(pattern.test(id), false);
+});

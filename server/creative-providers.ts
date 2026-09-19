@@ -122,14 +122,19 @@ export function validateLiveScenes(
         'Generated narration is too long for its scene. Review the script response before retrying.',
       );
     if (
-      scene.sourceIds.some((id) => !verified.has(id)) ||
-      (p.kind === 'factual' && !scene.sourceIds.length)
+      p.kind === 'factual' &&
+      (scene.sourceIds.some((id) => !verified.has(id)) ||
+        !scene.sourceIds.length)
     )
       throw new DomainError(
         'Factual script references missing or unverified sources.',
       );
   }
-  return ordered;
+  // Fiction has no evidence bindings. Preserve the raw model response in the call trace,
+  // but discard stray reference IDs from the materialized fictional script.
+  return p.kind === 'fiction'
+    ? ordered.map((scene) => ({ ...scene, sourceIds: [] }))
+    : ordered;
 }
 export interface CreativeProvider {
   concepts(p: Project, job: Job, signal: AbortSignal): Promise<Concept[]>;

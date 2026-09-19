@@ -16,7 +16,7 @@ import { generateRunway } from './runway';
 import { decisionProvider, assertPreflight } from './decision-providers';
 import { generateMusic } from './music';
 import { spokenNarration } from './narration';
-import { transition } from './service';
+import { transition, assertScriptReady } from './service';
 import { checkBudget, selectVideoProvider, DomainError } from './policy';
 import {
   providerRegistry,
@@ -38,7 +38,10 @@ export async function handle(job: Job, signal: AbortSignal) {
   // A crash may occur after committing a stage and before acknowledging its job.
   // Replaying that job must not move a completed workflow backwards.
   if (job.type === 'script' && list<Script>('script', p.id).length) return;
-  if (job.type === 'storyboard' && p.state === 'assets_planned') return;
+  if (job.type === 'storyboard') {
+    assertScriptReady(p);
+    if (p.state === 'assets_planned') return;
+  }
   if (
     job.type === 'evaluate' &&
     ['approved', 'revision_required'].includes(p.state) &&

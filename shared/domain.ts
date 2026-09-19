@@ -19,6 +19,8 @@ export const states = [
   'failed',
 ] as const;
 export type State = (typeof states)[number];
+// HTML pattern uses Unicode Sets (v); a literal hyphen must be escaped.
+export const VOICE_ID_PATTERN = '[a-zA-Z0-9_\\x2D]{1,100}';
 export const projectInput = z.object({
   title: z.string().trim().min(3).max(180),
   brief: z.string().trim().min(10).max(6000),
@@ -35,7 +37,7 @@ export const projectInput = z.object({
     .default('development'),
   elevenVoiceId: z
     .string()
-    .regex(/^[a-zA-Z0-9_-]{1,100}$/)
+    .regex(new RegExp(`^${VOICE_ID_PATTERN}$`, 'v'))
     .default('JBFqnCBsd6RMkjVDRZzb'),
   voiceStability: z.number().min(0).max(1).default(0.5),
   voiceStyle: z.number().min(0).max(1).default(0),

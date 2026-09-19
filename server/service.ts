@@ -162,6 +162,22 @@ export function selectConcept(projectId: string, conceptId: string) {
   event(projectId, 'concept.approved', { conceptId });
   return updated;
 }
+export function assertScriptReady(p: Project) {
+  const scenes = list<Scene>('scene', p.id).sort(
+    (a, b) => a.sceneNumber - b.sceneNumber,
+  );
+  if (
+    !list<Script>('script', p.id).length ||
+    scenes.length !== 3 ||
+    scenes.some((s, i) => s.sceneNumber !== i + 1 || s.durationSeconds <= 0) ||
+    Math.abs(
+      scenes.reduce((sum, s) => sum + s.durationSeconds, 0) - p.duration,
+    ) > 0.05
+  )
+    throw new DomainError(
+      'Complete the script successfully before building the storyboard. Retry the failed script job first.',
+    );
+}
 export function requestStage(projectId: string, type: JobType) {
   const p = get<Project>('project', projectId);
   if (isBusy(projectId))
@@ -184,6 +200,7 @@ export function requestStage(projectId: string, type: JobType) {
   if (['concepts', 'script'].includes(type)) assertResearch(p);
   if (type === 'concepts' && d.concepts.length && p.decisionProvider !== 'jev')
     throw new DomainError('Concepts already exist; select a concept');
+  if (type === 'storyboard') assertScriptReady(p);
   if (type === 'script' && !p.selectedConceptId)
     throw new DomainError('Select a concept first');
   if (
@@ -276,16 +293,14 @@ export function advance(id: string) {
     const target = `${job.type}:${job.sceneId ?? 'project'}`;
     if (!latestJobs.has(target)) latestJobs.set(target, job);
   }
-  if (
-    [...latestJobs.values()].some((j) =>
-      ['failed', 'cancelled'].includes(j.status),
-    )
-  ) {
+  const blockingJob = [...latestJobs.values()].find((j) =>
+    ['failed', 'cancelled'].includes(j.status),
+  );
+  if (blockingJob) {
     save('project', {
       ...p,
       automationRunning: false,
-      error:
-        'A job failed or was cancelled. Inspect and retry it before resuming.',
+      error: `${blockingJob.type} job ${blockingJob.status}: ${blockingJob.error ?? 'No details available'}. Open Generations and retry this job before resuming.`,
     });
     return;
   }

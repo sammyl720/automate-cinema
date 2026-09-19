@@ -52,7 +52,7 @@ import type {
   Job,
   DecisionEvaluation,
 } from '@/shared/domain';
-import { projectInput } from '@/shared/domain';
+import { projectInput, VOICE_ID_PATTERN } from '@/shared/domain';
 const initial: Snapshot = {
   projects: [],
   jobs: [],
@@ -788,7 +788,7 @@ function NewProject({
                     name="elevenVoiceId"
                     defaultValue="JBFqnCBsd6RMkjVDRZzb"
                     required
-                    pattern="[a-zA-Z0-9_-]{1,100}"
+                    pattern={VOICE_ID_PATTERN}
                   />
                 </label>
                 <label className="field">

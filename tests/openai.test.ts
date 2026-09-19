@@ -390,6 +390,21 @@ void test('speech is persisted, fitted per scene, captioned and not purchased on
 void test('stage transitions preserve newly charged spend', async () => {
   const p = project();
   save('project', { ...p, state: 'script_drafting' });
+  save('script', {
+    ...base(),
+    projectId: p.id,
+    title: p.title,
+    hook: 'A light',
+    ending: 'It returns',
+    estimatedDurationSeconds: 6,
+    version: 1,
+    narration: sceneSpecs.map((s) => ({
+      sceneNumber: s.sceneNumber,
+      text: s.narration,
+      start: (s.sceneNumber - 1) * 2,
+      end: s.sceneNumber * 2,
+    })),
+  });
   for (const spec of sceneSpecs)
     save('scene', {
       ...base(),
@@ -420,4 +435,65 @@ void test('stage transitions preserve newly charged spend', async () => {
   assert.equal(get<Project>('project', p.id).state, 'assets_planned');
   assert.ok(get<Project>('project', p.id).spentUsd > 0);
   assert.equal(list<ApiCall>('apiCall', p.id).length, 1);
+});
+
+void test('fiction script discards stray evidence IDs and replays the paid response safely', async () => {
+  const { conceptsFor } = await import('../server/creative');
+  const p = project();
+  const c = conceptsFor(p)[0];
+  save('concept', c);
+  save('project', { ...p, selectedConceptId: c.id, state: 'concept_selected' });
+  let requests = 0;
+  openaiTransport.fetch = async () => {
+    requests++;
+    return envelope({
+      scenes: sceneSpecs.map((s) => ({ ...s, sourceIds: [c.id] })),
+    });
+  };
+  const j = job(p, 'script');
+  await handle(j, new AbortController().signal);
+  const d = detail(p.id);
+  assert.equal(d.scenes.length, 3);
+  assert.equal(d.scripts.length, 1);
+  for (const s of d.scenes)
+    assert.deepEqual((s as Scene & { sourceIds: string[] }).sourceIds, []);
+  await handle(j, new AbortController().signal);
+  assert.equal(requests, 1);
+  assert.ok(JSON.stringify(d.apiCalls[0].result).includes(c.id));
+});
+void test('factual scripts still reject unknown source references', async () => {
+  const { validateLiveScenes } = await import('../server/creative-providers');
+  const p = { ...project(), kind: 'factual' as const };
+  assert.throws(
+    () =>
+      validateLiveScenes(
+        p,
+        sceneSpecs.map((s) => ({ ...s, sourceIds: ['unknown-source'] })),
+      ),
+    /missing or unverified/,
+  );
+  assert.throws(
+    () => validateLiveScenes(p, sceneSpecs),
+    /missing or unverified/,
+  );
+});
+void test('storyboard dispatch and worker reject missing scripts without a paid request', async () => {
+  const { requestStage } = await import('../server/service');
+  const p = project();
+  save('project', { ...p, state: 'script_drafting' });
+  openaiTransport.fetch = async () => {
+    throw new Error('Must not contact provider');
+  };
+  assert.throws(() => requestStage(p.id, 'storyboard'), /Complete the script/);
+  await assert.rejects(
+    () => handle(job(p, 'storyboard'), new AbortController().signal),
+    /Complete the script/,
+  );
+  assert.equal(detail(p.id).project.state, 'script_drafting');
+  assert.equal(detail(p.id).apiCalls.length, 0);
+  save('project', { ...p, state: 'assets_planned' });
+  await assert.rejects(
+    () => handle(job(p, 'storyboard'), new AbortController().signal),
+    /Complete the script/,
+  );
 });
